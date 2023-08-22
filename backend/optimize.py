@@ -1,74 +1,181 @@
+import numpy as np
+import cupy as cp
 import pandas as pd
 import yfinance as yf
-import datetime
+import matplotlib.pyplot as plt
+import scipy.optimize as optimization
 import sqlite3
-from urllib.error import HTTPError
 
-def main():
-    ticker_source = fetch_tickers()
-    print(ticker_source)
-    filtered_stocks = filter_stocks(ticker_source)
-    print(f'{len(filtered_stocks)} stocks remaining')
-    store_to_db(filtered_stocks)
-    
-def fetch_tickers():
-    return pd.read_html('https://topforeignstocks.com/listed-companies-lists/the-complete-list-of-listed-companies-in-singapore/')[0]
+start_date = '2022-01-01'
+end_date = '2022-12-31'
 
-def filter_stocks(ticker_source):
-    counter = 0
-    delisted = []
-    non_equity = []
-    insufficient_data = []
-    insufficient_market_cap = []
-
-    for idx, ticker in enumerate(ticker_source['Code']):
-        try:
-            data = yf.Ticker(ticker)
-            quote_type = data.info['quoteType']
-        except Exception as e:
-            print(f"{ticker} is delisted")
-            delisted.append(idx)
-            continue
-
-        if quote_type != 'EQUITY':
-            print(f"{ticker} is not an equity. Data not retrieved.")
-            non_equity.append(idx)
-            continue
-
-        if 'marketCap' not in data.info or 'averageVolume' not in data.info:
-            print(idx, ticker)
-            print(f"{ticker} has insufficient data. Data not retrieved.")
-            insufficient_data.append(idx)
-            continue
-
-        market_cap = data.info['marketCap']
-        avg_volume = data.info['averageVolume']
-        first_trade_date = datetime.datetime.fromtimestamp(data.info['firstTradeDateEpochUtc']).strftime('%Y-%m-%d')
-        if market_cap < 10e6 or avg_volume < 500e3 or first_trade_date > '2010-01-01':
-            print(f"{ticker} has insufficient market cap or average volume. Data not retrieved.")
-            insufficient_market_cap.append(idx)
-        else:
-            counter += 1
-
-    print(f"{counter} tickers have sufficient market cap and average volume.")
-    to_drop = delisted + non_equity + insufficient_data + insufficient_market_cap
-    ticker_source.drop(to_drop, inplace=True)
-    return ticker_source
-
-def store_to_db(ticker_source):
+def download_data():
     connection = sqlite3.connect('database.db')
     cursor = connection.cursor()
-    cursor.execute('CREATE TABLE IF NOT EXISTS equities (id INTEGER PRIMARY KEY, name TEXT, ticker TEXT, sector TEXT)')
-    data = cursor.execute('SELECT * FROM equities').fetchall()
+    tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
+    stock_data = {}
 
-    if data == []:
-        for idx,stock in enumerate(ticker_source.iterrows()):
-            cursor.execute(f'INSERT INTO equities VALUES ({idx}, "{stock[1][1]}", "{stock[1][2]}", "{stock[1][3]}")')
-    else:
-        data = pd.DataFrame(data, columns=['id', 'name', 'ticker', 'sector'])
-        print(data)
-    connection.commit()
+    for stock_tuple in tickers:
+        stock = stock_tuple[0]
+        table_name = f"stock_{stock[:3]}" # Remove the .SI suffix
+        query = f'SELECT Date, Close FROM {table_name} WHERE Date >= "{start_date}" AND Date <= "{end_date}"'
+        data = cursor.execute(query).fetchall()
+        dates, closes = zip(*data)
+        stock_data[stock] = pd.Series(closes, index=pd.to_datetime(dates))
+
+    cursor.close()
     connection.close()
 
-if __name__ == '__main__':
-    main()
+    return pd.DataFrame(stock_data)
+
+def show_data(data):
+    data.plot(figsize=(10,5))
+    plt.show()
+
+def calculate_returns(data):
+    log_return = np.log(data/data.shift(1))[1:] # Daily log returns
+    return log_return
+
+def show_statistics(returns: int, num_trading_days: int = 252):
+    print(f"Expected daily return:\n{returns.mean()*num_trading_days}%")
+    print(f"Expected covariance:\n{returns.cov()*num_trading_days}")
+    print(f"Expected correlation:\n{returns.corr()}")
+
+def generate_random_weights(num_stocks: int):
+    # Randomly select the number of stocks to include between 4 and 20
+    num_selected_stocks = np.random.randint(4, 21)
+
+    # Randomly select the indices of the stocks to include
+    selected_stocks = np.random.choice(num_stocks, num_selected_stocks, replace=False)
+
+    # Create a weight array of zeros
+    weights = np.zeros(num_stocks)
+
+    # Randomly assign weights above 5% to the selected stocks
+    random_weights = np.random.uniform(0.05, 1, num_selected_stocks)
+    random_weights /= random_weights.sum()
+
+    # Update the weight array with the random weights
+    for idx, weight in zip(selected_stocks, random_weights):
+        weights[idx] = weight
+
+    return weights
+
+def generate_portfolios(returns: int, num_portfolios: int = 10000, num_trading_days: int = 252, stocks: list = None):
+
+    portfolio_means = []
+    portfolio_risks = []
+    portfolio_weights = []
+    sharpe_ratios = []
+    num_stocks = len(stocks)
+
+    for _ in range(num_portfolios):
+        w = generate_random_weights(num_stocks)
+        portfolio_weights.append(w)
+        mean_return = np.sum(returns.mean() * w) * num_trading_days
+        risk = np.sqrt(np.dot(w.T, np.dot(returns.cov() * num_trading_days, w)))
+        portfolio_means.append(mean_return)
+        portfolio_risks.append(risk)
+        sharpe_ratios.append(mean_return / risk)
+
+    # Sorting the portfolios by Sharpe ratio
+    sorted_indices = np.argsort(sharpe_ratios)[::-1] # Reverse to sort in descending order
+    portfolio_weights = np.array(portfolio_weights)[sorted_indices]
+    portfolio_means = np.array(portfolio_means)[sorted_indices]
+    portfolio_risks = np.array(portfolio_risks)[sorted_indices]
+
+    return portfolio_weights, portfolio_means, portfolio_risks
+
+
+def show_portfolios(returns: int, volatilties: int):
+    plt.figure(figsize=(10,6))
+    plt.scatter(volatilties, returns, c=returns/volatilties, marker='o')
+    plt.grid(True)
+    plt.xlabel('Expected Volatility')
+    plt.ylabel('Expected Return')
+    plt.colorbar(label='Sharpe Ratio')
+    plt.show()
+
+# Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
+def statistics(weights: int, returns: int, num_trading_days: int = 252):
+    portfolio_return = np.sum(returns.mean()*weights)*num_trading_days
+    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov()*num_trading_days, weights)))
+    return np.array([portfolio_return, portfolio_volatility, portfolio_return/portfolio_volatility])
+
+# Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
+def min_func_sharpe(weights: int, returns: int, num_trading_days: int = 252):
+    return -statistics(weights, returns, num_trading_days)[2]
+
+# Finds the optimal portfolio weights that maximizes the Sharpe Ratio
+def optimize_portfolio(weights: int, returns: int, num_trading_days: int = 252, stocks: list = None):
+    len_stocks = len(stocks)
+    selected_stocks_count = 0
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bounds = tuple((0, 1) for _ in range(len_stocks))
+    optimum_weights = weights[0]
+    
+    while selected_stocks_count < 4 or selected_stocks_count > 20 :
+        print("Optimizing portfolio...")
+        optimum = optimization.minimize(fun=min_func_sharpe, x0=optimum_weights, args=returns, method='SLSQP', bounds=bounds, constraints=constraints)
+        optimum_weights = optimum['x']
+        optimum_weights[optimum_weights < 0.05] = 0
+        selected_stocks_count = np.sum(optimum_weights > 0)
+        
+        total_weights = np.sum(optimum_weights)
+        optimum_weights /= total_weights
+    
+    total_weights = np.sum(optimum_weights)
+    print(f"Total weights: {total_weights}")
+    return optimum
+
+def print_optimal_portfolio(optimum: int, returns: int):
+    print(f"Optimal weights: {optimum['x'].round(3)}")
+    print(f"Expected return, volatility and Sharpe Ratio: {statistics(optimum['x'].round(3), returns)}")
+
+def show_optimal_portfolio(optimum: int, returns: int, portfolio_returns: int, portfolio_volatilties: int):
+    plt.figure(figsize=(10,6))
+    plt.scatter(portfolio_volatilties, portfolio_returns, c=portfolio_returns/portfolio_volatilties, marker='o')
+    plt.grid(True)
+    plt.xlabel('Expected Volatility')
+    plt.ylabel('Expected Return')
+    plt.colorbar(label='Sharpe Ratio')
+
+    # Add red star to optimal portfolio
+    plt.scatter(statistics(optimum['x'], returns)[1], statistics(optimum['x'], returns)[0], marker='*', color='r', s=500, label='Optimal Portfolio')
+    plt.show()
+
+if __name__ == "__main__":
+    data = download_data()
+    show_data(data)
+    log_return = calculate_returns(data)
+    show_statistics(log_return)
+
+    weights, means, risks = generate_portfolios(log_return, stocks=data.columns)
+    show_portfolios(means, risks)
+    optimum = optimize_portfolio(weights, log_return, stocks=data.columns)
+    print_optimal_portfolio(optimum, log_return)
+    show_optimal_portfolio(optimum, log_return, means, risks)
+
+
+
+# Expected value = Summation of all possible values * probability of each value
+# Variance = Summation of all possible values * probability of each value * (value - expected value)^2
+# Covariance = Summation of all possible values * probability of each value * (value - expected value of x) * (value - expected value of y)
+# Correlation = Covariance / (standard deviation of x * standard deviation of y)
+# Stocks which are highly correlated are not good for diversification.
+
+"""
+Assumptions of Markowitz Model:
+1. Returns are normally distributed with a mean and variance
+2. Investors are risk averse
+3. Long positions only (no short selling)
+Goal:
+1. Maximize return for a given level of risk
+2. Minimize risk for a given level of return
+Parameters:
+1. Weights of each asset
+2. Return of each asset based on historical data
+3. Expected return of each asset
+"""
+
+# Sharpe Ratio = (Expected return of portfolio - risk free rate) / standard deviation of portfolio. Higher the better.

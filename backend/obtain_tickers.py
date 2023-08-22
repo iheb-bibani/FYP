@@ -2,6 +2,15 @@ import pandas as pd
 import yfinance as yf
 import datetime
 import sqlite3
+from urllib.error import HTTPError
+
+
+def main():
+    ticker_source = fetch_tickers()
+    print(ticker_source)
+    filtered_stocks = filter_stocks(ticker_source)
+    print(f"{len(filtered_stocks)} stocks remaining")
+    store_to_db(filtered_stocks)
 
 
 def fetch_tickers():
@@ -72,14 +81,9 @@ def store_to_db(ticker_source):
     else:
         data = pd.DataFrame(data, columns=["id", "name", "ticker", "sector"])
         print(data)
-
     connection.commit()
     connection.close()
 
 
 if __name__ == "__main__":
-    ticker_source = fetch_tickers()
-    print(ticker_source)
-    filtered_stocks = filter_stocks(ticker_source)
-    print(f"{len(filtered_stocks)} stocks remaining")
-    store_to_db(filtered_stocks)
+    main()
