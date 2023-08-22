@@ -1,15 +1,15 @@
 import numpy as np
-import cupy as cp
 import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
 import scipy.optimize as optimization
 import sqlite3
+from typing import Tuple, List
 
 start_date = '2022-01-01'
 end_date = '2022-12-31'
 
-def download_data():
+def download_data() -> pd.DataFrame:
     connection = sqlite3.connect('database.db')
     cursor = connection.cursor()
     tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
@@ -28,20 +28,20 @@ def download_data():
 
     return pd.DataFrame(stock_data)
 
-def show_data(data):
+def show_data(data: pd.DataFrame) -> None:
     data.plot(figsize=(10,5))
     plt.show()
 
-def calculate_returns(data):
+def calculate_returns(data: pd.DataFrame) -> pd.DataFrame:
     log_return = np.log(data/data.shift(1))[1:] # Daily log returns
     return log_return
 
-def show_statistics(returns: int, num_trading_days: int = 252):
+def show_statistics(returns: pd.DataFrame, num_trading_days: int = 252) -> None:
     print(f"Expected daily return:\n{returns.mean()*num_trading_days}%")
     print(f"Expected covariance:\n{returns.cov()*num_trading_days}")
     print(f"Expected correlation:\n{returns.corr()}")
 
-def generate_random_weights(num_stocks: int):
+def generate_random_weights(num_stocks: int) -> np.ndarray:
     # Randomly select the number of stocks to include between 4 and 20
     num_selected_stocks = np.random.randint(4, 21)
 
@@ -61,7 +61,7 @@ def generate_random_weights(num_stocks: int):
 
     return weights
 
-def generate_portfolios(returns: int, num_portfolios: int = 10000, num_trading_days: int = 252, stocks: list = None):
+def generate_portfolios(returns: pd.DataFrame, num_portfolios: int = 10000, num_trading_days: int = 252, stocks: List[str] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     portfolio_means = []
     portfolio_risks = []
@@ -87,9 +87,9 @@ def generate_portfolios(returns: int, num_portfolios: int = 10000, num_trading_d
     return portfolio_weights, portfolio_means, portfolio_risks
 
 
-def show_portfolios(returns: int, volatilties: int):
+def show_portfolios(returns: pd.DataFrame, volatilities: np.ndarray) -> None:
     plt.figure(figsize=(10,6))
-    plt.scatter(volatilties, returns, c=returns/volatilties, marker='o')
+    plt.scatter(volatilities, returns, c=returns/volatilities, marker='o')
     plt.grid(True)
     plt.xlabel('Expected Volatility')
     plt.ylabel('Expected Return')
@@ -97,17 +97,17 @@ def show_portfolios(returns: int, volatilties: int):
     plt.show()
 
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
-def statistics(weights: int, returns: int, num_trading_days: int = 252):
+def statistics(weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252) -> np.ndarray:
     portfolio_return = np.sum(returns.mean()*weights)*num_trading_days
     portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov()*num_trading_days, weights)))
     return np.array([portfolio_return, portfolio_volatility, portfolio_return/portfolio_volatility])
 
 # Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
-def min_func_sharpe(weights: int, returns: int, num_trading_days: int = 252):
+def min_func_sharpe(weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252) -> float:
     return -statistics(weights, returns, num_trading_days)[2]
 
 # Finds the optimal portfolio weights that maximizes the Sharpe Ratio
-def optimize_portfolio(weights: int, returns: int, num_trading_days: int = 252, stocks: list = None):
+def optimize_portfolio(weights: np.ndarray, returns: pd.DataFrame, stocks: List[str] = None) -> np.ndarray:
     len_stocks = len(stocks)
     selected_stocks_count = 0
     constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
@@ -122,26 +122,26 @@ def optimize_portfolio(weights: int, returns: int, num_trading_days: int = 252, 
         selected_stocks_count = np.sum(optimum_weights > 0)
         
         total_weights = np.sum(optimum_weights)
-        optimum_weights /= total_weights
+        optimum_weights = np.round(optimum_weights / total_weights, 3)
     
     total_weights = np.sum(optimum_weights)
     print(f"Total weights: {total_weights}")
-    return optimum
+    return optimum_weights
 
-def print_optimal_portfolio(optimum: int, returns: int):
-    print(f"Optimal weights: {optimum['x'].round(3)}")
-    print(f"Expected return, volatility and Sharpe Ratio: {statistics(optimum['x'].round(3), returns)}")
+def print_optimal_portfolio(optimum: np.ndarray, returns: pd.DataFrame) -> None:
+    print(f"Optimal weights: {optimum}")
+    print(f"Expected return, volatility and Sharpe Ratio: {statistics(optimum, returns)}")
 
-def show_optimal_portfolio(optimum: int, returns: int, portfolio_returns: int, portfolio_volatilties: int):
+def show_optimal_portfolio(optimum: np.ndarray, returns: pd.DataFrame, portfolio_returns: np.ndarray, portfolio_volatilities: np.ndarray) -> None:
     plt.figure(figsize=(10,6))
-    plt.scatter(portfolio_volatilties, portfolio_returns, c=portfolio_returns/portfolio_volatilties, marker='o')
+    plt.scatter(portfolio_volatilities, portfolio_returns, c=portfolio_returns/portfolio_volatilities, marker='o')
     plt.grid(True)
     plt.xlabel('Expected Volatility')
     plt.ylabel('Expected Return')
     plt.colorbar(label='Sharpe Ratio')
 
     # Add red star to optimal portfolio
-    plt.scatter(statistics(optimum['x'], returns)[1], statistics(optimum['x'], returns)[0], marker='*', color='r', s=500, label='Optimal Portfolio')
+    plt.scatter(statistics(optimum, returns)[1], statistics(optimum, returns)[0], marker='*', color='r', s=500, label='Optimal Portfolio')
     plt.show()
 
 if __name__ == "__main__":
@@ -152,7 +152,7 @@ if __name__ == "__main__":
 
     weights, means, risks = generate_portfolios(log_return, stocks=data.columns)
     show_portfolios(means, risks)
-    optimum = optimize_portfolio(weights, log_return, stocks=data.columns)
+    optimum = optimize_portfolio(weights, log_return, data.columns)
     print_optimal_portfolio(optimum, log_return)
     show_optimal_portfolio(optimum, log_return, means, risks)
 
