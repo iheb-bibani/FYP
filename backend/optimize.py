@@ -6,13 +6,13 @@ import scipy.optimize as optimization
 import sqlite3
 from typing import Tuple, List
 
-start_date = "2022-01-01"
-end_date = "2022-12-31"
+start_date = "2022-08-01"
+end_date = "2023-07-31"
 
 
 def main() -> None:
-    connection = sqlite3.connect("database.db")
-    data = download_data()
+    connection =  sqlite3.connect("../databases/relational.db")
+    data = download_data(connection)
     log_return = calculate_returns(data)
     store_log_returns(log_return, connection)
     #show_data(data)
@@ -24,11 +24,11 @@ def main() -> None:
     optimum = optimize_portfolio(weights, log_return, data.columns)
     store_optimal_weights(optimum, connection)
     print_optimal_portfolio(optimum, log_return)
-    show_optimal_portfolio(optimum, log_return, means, risks)
+    #show_optimal_portfolio(optimum, log_return, means, risks)
+    connection.close()
 
 
-def download_data() -> pd.DataFrame:
-    connection = sqlite3.connect("database.db")
+def download_data(connection: sqlite3.Connection) -> pd.DataFrame:
     cursor = connection.cursor()
     tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
     stock_data = {}
@@ -42,7 +42,6 @@ def download_data() -> pd.DataFrame:
         stock_data[stock] = pd.Series(closes, index=pd.to_datetime(dates))
 
     cursor.close()
-    connection.close()
 
     return pd.DataFrame(stock_data)
 
@@ -109,7 +108,8 @@ def generate_portfolios(
     sorted_indices = np.argsort(sharpe_ratios)[
         ::-1
     ]  # Reverse to sort in descending order
-    portfolio_weights = np.array(portfolio_weights)[sorted_indices]
+    # Round all weights to 3dp
+    portfolio_weights = np.array([np.round(weight,3) for weight in portfolio_weights])[sorted_indices]
     portfolio_means = np.array(portfolio_means)[sorted_indices]
     portfolio_risks = np.array(portfolio_risks)[sorted_indices]
 
@@ -251,14 +251,13 @@ def store_log_returns(log_return: pd.DataFrame, connection: sqlite3.Connection):
 
     # Insert log returns into the table for dates outside the existing range
     for date, row in log_return.iterrows():
-        if (min_date and date <= min_date) or (max_date and date >= max_date):
+        if (min_date and date < min_date) or (max_date and date > max_date):
             continue
-
         date_str = date.strftime("%Y-%m-%d")
         values = [str(value) for value in row.values]
         values_str = ", ".join(values)
         cursor.execute(
-            f"INSERT INTO log_returns (date, {joined_columns}) VALUES ('{date_str}', {values_str})"
+            f"INSERT OR REPLACE INTO log_returns (date, {joined_columns}) VALUES ('{date_str}', {values_str})"
         )
 
     connection.commit()

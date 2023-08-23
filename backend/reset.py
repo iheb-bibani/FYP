@@ -2,7 +2,7 @@ import sqlite3
 
 def reset_tables():
     # Connect to the SQLite database
-    connection = sqlite3.connect("../backend/database.db")
+    connection =  sqlite3.connect("../databases/relational.db")
     cursor = connection.cursor()
 
     # Delete all data from the log_returns table

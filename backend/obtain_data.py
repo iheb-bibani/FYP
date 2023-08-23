@@ -21,7 +21,7 @@ def main() -> None:
 
 
 def download_and_store_historical_data() -> None:
-    connection = sqlite3.connect("database.db")
+    connection = sqlite3.connect("../databases/relational.db")
     cursor = connection.cursor()
     tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
 
