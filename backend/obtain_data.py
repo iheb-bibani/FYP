@@ -6,7 +6,7 @@ import time
 from urllib.error import HTTPError
 
 
-def main():
+def main() -> None:
     connection = sqlite3.connect("database.db")
     cursor = connection.cursor()
     ticker_source = cursor.execute("SELECT * FROM equities").fetchall()
@@ -20,7 +20,7 @@ def main():
         print(data)
 
 
-def download_and_store_historical_data():
+def download_and_store_historical_data() -> None:
     connection = sqlite3.connect("database.db")
     cursor = connection.cursor()
     tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
@@ -64,7 +64,6 @@ def download_and_store_historical_data():
                 stock_data = yf.Ticker(ticker)
                 historical_data = stock_data.history(period="1d", start=start_date)
                 historical_data.fillna(0, inplace=True)
-                print(historical_data)
                 break
             except HTTPError:
                 print(f"Rate limit exceeded for {ticker}. Retrying in 60 seconds...")
@@ -80,7 +79,7 @@ def download_and_store_historical_data():
     connection.close()
 
 
-def get_all_stock_data():
+def get_all_stock_data() -> dict:
     connection = sqlite3.connect("database.db")
     cursor = connection.cursor()
     tickers = cursor.execute("SELECT ticker FROM equities").fetchall()

@@ -2,10 +2,10 @@ import pandas as pd
 import yfinance as yf
 import datetime
 import sqlite3
-from urllib.error import HTTPError
+from typing import List
 
 
-def main():
+def main() -> None:
     ticker_source = fetch_tickers()
     print(ticker_source)
     filtered_stocks = filter_stocks(ticker_source)
@@ -13,13 +13,13 @@ def main():
     store_to_db(filtered_stocks)
 
 
-def fetch_tickers():
+def fetch_tickers() -> pd.DataFrame:
     return pd.read_html(
         "https://topforeignstocks.com/listed-companies-lists/the-complete-list-of-listed-companies-in-singapore/"
     )[0]
 
 
-def filter_stocks(ticker_source):
+def filter_stocks(ticker_source: pd.DataFrame) -> pd.DataFrame:
     counter = 0
     delisted = []
     non_equity = []
@@ -65,7 +65,7 @@ def filter_stocks(ticker_source):
     return ticker_source
 
 
-def store_to_db(ticker_source):
+def store_to_db(ticker_source: pd.DataFrame) -> None:
     connection = sqlite3.connect("database.db")
     cursor = connection.cursor()
     cursor.execute(
