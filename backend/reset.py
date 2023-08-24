@@ -5,17 +5,16 @@ def reset_tables():
     connection =  sqlite3.connect("../databases/relational.db")
     cursor = connection.cursor()
 
-    # Delete all data from the log_returns table
-    cursor.execute("DELETE FROM log_returns")
-    print("Log returns table has been reset.")
-
     # Delete all data from the portfolio_weights table
-    cursor.execute("DELETE FROM portfolio_weights")
+    cursor.execute("DROP TABLE IF EXISTS portfolio_weights")
     print("Portfolio weights table has been reset.")
 
     # Delete all data from the optimal_weights table
-    cursor.execute("DELETE FROM optimal_weights")
+    cursor.execute("DROP TABLE IF EXISTS optimal_weights")
     print("Optimal weights table has been reset.")
+    
+    cursor.execute("DROP TABLE IF EXISTS ticker_run")
+    print("Ticker run table has been reset.")
 
     # Commit the changes and close the connection
     connection.commit()

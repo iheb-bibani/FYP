@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 
 
 def main() -> None:
-    connection = sqlite3.connect("database.db")
+    connection = sqlite3.connect("../databases/relational.db")
     cursor = connection.cursor()
     ticker_source = cursor.execute("SELECT * FROM equities").fetchall()
     cursor.close()
@@ -80,7 +80,7 @@ def download_and_store_historical_data() -> None:
 
 
 def get_all_stock_data() -> dict:
-    connection = sqlite3.connect("database.db")
+    connection = sqlite3.connect("../databases/relational.db")
     cursor = connection.cursor()
     tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
 

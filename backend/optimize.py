@@ -5,28 +5,33 @@ import matplotlib.pyplot as plt
 import scipy.optimize as optimization
 import sqlite3
 from typing import Tuple, List
+from demo import show_random_portfolios, show_optimal_portfolio, print_optimal_portfolio
 
-start_date = "2022-08-01"
-end_date = "2023-07-31"
+start_date = "2022-01-01"
+end_date = "2022-12-31"
 
 
 def main() -> None:
-    connection =  sqlite3.connect("../databases/relational.db")
+    connection = sqlite3.connect("../databases/relational.db")
     data = download_data(connection)
     log_return = calculate_returns(data)
-    store_log_returns(log_return, connection)
-    #show_data(data)
-    # show_statistics(log_return)
+    tickers = data.columns.tolist()  # Extracting the tickers as a list
+    run_id = store_ticker_run(start_date, end_date, tickers, connection)  # Storing the run information
 
-    weights, means, risks = generate_portfolios(log_return, stocks=data.columns)
-    store_portfolio_weights(weights, connection)
-    # show_portfolios(means, risks)
-    optimum = optimize_portfolio(weights, log_return, data.columns)
-    store_optimal_weights(optimum, connection)
-    print_optimal_portfolio(optimum, log_return)
-    #show_optimal_portfolio(optimum, log_return, means, risks)
+    # Generating and storing random portfolios
+    weights, means, risks = generate_portfolios(log_return, stocks=tickers)
+    store_portfolio_weights(weights, means, risks, run_id, connection)
+    show_random_portfolios(means, risks)
+
+    # Optimizing and storing the optimal portfolio
+    optimum, expected_return, volatility, sharpe_ratio = optimize_portfolio(weights, log_return, tickers)
+    store_optimal_weights(optimum, expected_return, volatility, run_id, connection)
+
+    # Printing and showing the optimal portfolio
+    print_optimal_portfolio(optimum, expected_return, volatility, sharpe_ratio)
+    show_optimal_portfolio(expected_return, volatility, means, risks)
+
     connection.close()
-
 
 def download_data(connection: sqlite3.Connection) -> pd.DataFrame:
     cursor = connection.cursor()
@@ -45,21 +50,9 @@ def download_data(connection: sqlite3.Connection) -> pd.DataFrame:
 
     return pd.DataFrame(stock_data)
 
-
-def show_data(data: pd.DataFrame) -> None:
-    data.plot(figsize=(10, 5))
-    plt.show()
-
-
 def calculate_returns(data: pd.DataFrame) -> pd.DataFrame:
     log_return = np.log(data / data.shift(1))[1:]  # Daily log returns
     return log_return
-
-
-def show_statistics(returns: pd.DataFrame, num_trading_days: int = 252) -> None:
-    print(f"Expected daily return:\n{returns.mean()*num_trading_days}%")
-    print(f"Expected covariance:\n{returns.cov()*num_trading_days}")
-    print(f"Expected correlation:\n{returns.corr()}")
 
 
 def generate_random_weights(num_stocks: int) -> np.ndarray:
@@ -116,16 +109,6 @@ def generate_portfolios(
     return portfolio_weights, portfolio_means, portfolio_risks
 
 
-def show_portfolios(returns: pd.DataFrame, volatilities: np.ndarray) -> None:
-    plt.figure(figsize=(10, 6))
-    plt.scatter(volatilities, returns, c=returns / volatilities, marker="o")
-    plt.grid(True)
-    plt.xlabel("Expected Volatility")
-    plt.ylabel("Expected Return")
-    plt.colorbar(label="Sharpe Ratio")
-    plt.show()
-
-
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
 def statistics(
     weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252
@@ -179,169 +162,76 @@ def optimize_portfolio(
 
     total_weights = np.sum(optimum_weights)
     print(f"Total weights: {total_weights}")
-    return optimum_weights
+    mean_return, volatility, sharpe_ratio = statistics(optimum_weights, returns)
+    return optimum_weights, mean_return, volatility, sharpe_ratio
 
 
-def print_optimal_portfolio(optimum: np.ndarray, returns: pd.DataFrame) -> None:
-    print(f"Optimal weights: {optimum}")
-    print(
-        f"Expected return, volatility and Sharpe Ratio: {statistics(optimum, returns)}"
-    )
-
-
-def show_optimal_portfolio(
-    optimum: np.ndarray,
-    returns: pd.DataFrame,
-    portfolio_returns: np.ndarray,
-    portfolio_volatilities: np.ndarray,
-) -> None:
-    plt.figure(figsize=(10, 6))
-    plt.scatter(
-        portfolio_volatilities,
-        portfolio_returns,
-        c=portfolio_returns / portfolio_volatilities,
-        marker="o",
-    )
-    plt.grid(True)
-    plt.xlabel("Expected Volatility")
-    plt.ylabel("Expected Return")
-    plt.colorbar(label="Sharpe Ratio")
-
-    # Add red star to optimal portfolio
-    plt.scatter(
-        statistics(optimum, returns)[1],
-        statistics(optimum, returns)[0],
-        marker="*",
-        color="r",
-        s=500,
-        label="Optimal Portfolio",
-    )
-    plt.show()
-
-def store_log_returns(log_return: pd.DataFrame, connection: sqlite3.Connection):
+def store_ticker_run(start_date: str, end_date: str, tickers: List[str], connection: sqlite3.Connection) -> int:
     cursor = connection.cursor()
-
-    # Prefix the tickers with 't' to ensure they are valid SQL identifiers
-    log_returns_columns = ["t" + column[:3] for column in log_return.columns] # Remove the .SI suffix
-    columns_definition = ", ".join([f"{ticker} REAL" for ticker in log_returns_columns])
     cursor.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS log_returns (
-            date TEXT PRIMARY KEY,
-            {columns_definition}
-        )
         """
-    )
-
-    # Get existing columns in the table
-    cursor.execute("PRAGMA table_info(log_returns)")
-    existing_columns = [column[1] for column in cursor.fetchall()]
-
-    # Add new columns for new tickers
-    for ticker in log_returns_columns:
-        if ticker not in existing_columns:
-            cursor.execute(f"ALTER TABLE log_returns ADD COLUMN {ticker} REAL")
-
-    # Find existing date range in the table
-    cursor.execute("SELECT MIN(date), MAX(date) FROM log_returns")
-    min_date, max_date = cursor.fetchone()
-    min_date = pd.to_datetime(min_date) if min_date else None
-    max_date = pd.to_datetime(max_date) if max_date else None
-    joined_columns = ", ".join(log_returns_columns)
-
-    # Insert log returns into the table for dates outside the existing range
-    for date, row in log_return.iterrows():
-        if (min_date and date < min_date) or (max_date and date > max_date):
-            continue
-        date_str = date.strftime("%Y-%m-%d")
-        values = [str(value) for value in row.values]
-        values_str = ", ".join(values)
-        cursor.execute(
-            f"INSERT OR REPLACE INTO log_returns (date, {joined_columns}) VALUES ('{date_str}', {values_str})"
+        CREATE TABLE IF NOT EXISTS ticker_run (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_date TEXT,
+            end_date TEXT,
+            tickers TEXT
         )
-
+    """
+    )
+    tickers_str = ",".join(tickers)
+    cursor.execute(
+        "INSERT INTO ticker_run (start_date, end_date, tickers) VALUES (?, ?, ?)",
+        (start_date, end_date, tickers_str),
+    )
+    run_id = cursor.lastrowid
     connection.commit()
     cursor.close()
+    return run_id
 
-def store_portfolio_weights(
-    portfolio_weights: np.ndarray, connection: sqlite3.Connection
-):
+def store_portfolio_weights(portfolio_weights: np.ndarray, means: np.ndarray, risks: np.ndarray, run_id: int, connection: sqlite3.Connection):
     cursor = connection.cursor()
-
-    # Create table if not exists
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS portfolio_weights (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            start_date TEXT,
-            end_date TEXT,
-            weights TEXT
+            run_id INTEGER,
+            weight TEXT,
+            returns REAL,
+            volatility REAL,
+            FOREIGN KEY(run_id) REFERENCES ticker_run(id)
         )
     """
     )
-
-    # Convert each weight array to a comma-separated string and insert into the table
-    for weights in portfolio_weights:
-        weights_str = ",".join(map(str, weights))
+    for weights, mean, risk in zip(portfolio_weights, means, risks):
+        weights_str = ",".join([str(weight) for weight in weights])
         cursor.execute(
-            "INSERT INTO portfolio_weights (start_date, end_date, weights) VALUES (?, ?, ?)",
-            (start_date, end_date, weights_str),
+            "INSERT INTO portfolio_weights (run_id, weight, returns, volatility) VALUES (?, ?, ?, ?)",
+            (run_id, weights_str, mean, risk),
         )
-
     connection.commit()
     cursor.close()
 
-
-def store_optimal_weights(optimum_weights: np.ndarray, connection: sqlite3.Connection):
+def store_optimal_weights(optimum_weights: np.ndarray, means: np.float_, risks: np.float_, run_id: int, connection: sqlite3.Connection) -> int:
     cursor = connection.cursor()
-
-    # Create table if not exists
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS optimal_weights (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            start_date TEXT,
-            end_date TEXT,
-            weights TEXT
+            run_id INTEGER,
+            weight TEXT,
+            returns REAL,
+            volatility REAL,
+            FOREIGN KEY(run_id) REFERENCES ticker_run(id)
         )
     """
     )
-
-    # Convert weights to a comma-separated string
-    weights_str = ",".join(map(str, optimum_weights))
-
-    # Insert weights into the table
+    weights_str = ",".join([str(weight) for weight in optimum_weights])
     cursor.execute(
-        "INSERT INTO optimal_weights (start_date, end_date, weights) VALUES (?, ?, ?)",
-        (start_date, end_date, weights_str),
+        "INSERT INTO optimal_weights (run_id, weight, returns, volatility) VALUES (?, ?, ?, ?)",
+        (run_id, weights_str, means, risks),
     )
-
     connection.commit()
     cursor.close()
 
-
 if __name__ == "__main__":
     main()
-
-
-# Expected value = Summation of all possible values * probability of each value
-# Variance = Summation of all possible values * probability of each value * (value - expected value)^2
-# Covariance = Summation of all possible values * probability of each value * (value - expected value of x) * (value - expected value of y)
-# Correlation = Covariance / (standard deviation of x * standard deviation of y)
-# Stocks which are highly correlated are not good for diversification.
-
-"""
-Assumptions of Markowitz Model:
-1. Returns are normally distributed with a mean and variance
-2. Investors are risk averse
-3. Long positions only (no short selling)
-Goal:
-1. Maximize return for a given level of risk
-2. Minimize risk for a given level of return
-Parameters:
-1. Weights of each asset
-2. Return of each asset based on historical data
-3. Expected return of each asset
-"""
-
-# Sharpe Ratio = (Expected return of portfolio - risk free rate) / standard deviation of portfolio. Higher the better.
