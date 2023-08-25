@@ -7,8 +7,8 @@ import sqlite3
 from typing import Tuple, List
 from demo import show_random_portfolios, show_optimal_portfolio, print_optimal_portfolio
 
-start_date = "2022-01-01"
-end_date = "2022-12-31"
+start_date = "2022-07-01"
+end_date = "2023-06-30"
 
 
 def main() -> None:
@@ -16,7 +16,9 @@ def main() -> None:
     data = download_data(connection)
     log_return = calculate_returns(data)
     tickers = data.columns.tolist()  # Extracting the tickers as a list
-    run_id = store_ticker_run(start_date, end_date, tickers, connection)  # Storing the run information
+    run_id = store_ticker_run(
+        start_date, end_date, tickers, connection
+    )  # Storing the run information
 
     # Generating and storing random portfolios
     weights, means, risks = generate_portfolios(log_return, stocks=tickers)
@@ -24,14 +26,17 @@ def main() -> None:
     show_random_portfolios(means, risks)
 
     # Optimizing and storing the optimal portfolio
-    optimum, expected_return, volatility, sharpe_ratio = optimize_portfolio(weights, log_return, tickers)
+    optimum, expected_return, volatility, sharpe_ratio = optimize_portfolio(
+        weights, log_return, tickers
+    )
     store_optimal_weights(optimum, expected_return, volatility, run_id, connection)
 
     # Printing and showing the optimal portfolio
-    print_optimal_portfolio(optimum, expected_return, volatility, sharpe_ratio)
-    show_optimal_portfolio(expected_return, volatility, means, risks)
+    # print_optimal_portfolio(optimum, expected_return, volatility, sharpe_ratio)
+    # show_optimal_portfolio(expected_return, volatility, means, risks)
 
     connection.close()
+
 
 def download_data(connection: sqlite3.Connection) -> pd.DataFrame:
     cursor = connection.cursor()
@@ -49,6 +54,7 @@ def download_data(connection: sqlite3.Connection) -> pd.DataFrame:
     cursor.close()
 
     return pd.DataFrame(stock_data)
+
 
 def calculate_returns(data: pd.DataFrame) -> pd.DataFrame:
     log_return = np.log(data / data.shift(1))[1:]  # Daily log returns
@@ -102,7 +108,9 @@ def generate_portfolios(
         ::-1
     ]  # Reverse to sort in descending order
     # Round all weights to 3dp
-    portfolio_weights = np.array([np.round(weight,3) for weight in portfolio_weights])[sorted_indices]
+    portfolio_weights = np.array([np.round(weight, 3) for weight in portfolio_weights])[
+        sorted_indices
+    ]
     portfolio_means = np.array(portfolio_means)[sorted_indices]
     portfolio_risks = np.array(portfolio_risks)[sorted_indices]
 
@@ -166,7 +174,9 @@ def optimize_portfolio(
     return optimum_weights, mean_return, volatility, sharpe_ratio
 
 
-def store_ticker_run(start_date: str, end_date: str, tickers: List[str], connection: sqlite3.Connection) -> int:
+def store_ticker_run(
+    start_date: str, end_date: str, tickers: List[str], connection: sqlite3.Connection
+) -> int:
     cursor = connection.cursor()
     cursor.execute(
         """
@@ -188,7 +198,14 @@ def store_ticker_run(start_date: str, end_date: str, tickers: List[str], connect
     cursor.close()
     return run_id
 
-def store_portfolio_weights(portfolio_weights: np.ndarray, means: np.ndarray, risks: np.ndarray, run_id: int, connection: sqlite3.Connection):
+
+def store_portfolio_weights(
+    portfolio_weights: np.ndarray,
+    means: np.ndarray,
+    risks: np.ndarray,
+    run_id: int,
+    connection: sqlite3.Connection,
+):
     cursor = connection.cursor()
     cursor.execute(
         """
@@ -211,7 +228,14 @@ def store_portfolio_weights(portfolio_weights: np.ndarray, means: np.ndarray, ri
     connection.commit()
     cursor.close()
 
-def store_optimal_weights(optimum_weights: np.ndarray, means: np.float_, risks: np.float_, run_id: int, connection: sqlite3.Connection) -> int:
+
+def store_optimal_weights(
+    optimum_weights: np.ndarray,
+    means: np.float_,
+    risks: np.float_,
+    run_id: int,
+    connection: sqlite3.Connection,
+) -> int:
     cursor = connection.cursor()
     cursor.execute(
         """
@@ -232,6 +256,7 @@ def store_optimal_weights(optimum_weights: np.ndarray, means: np.float_, risks: 
     )
     connection.commit()
     cursor.close()
+
 
 if __name__ == "__main__":
     main()

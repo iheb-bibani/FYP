@@ -66,7 +66,7 @@ def filter_stocks(ticker_source: pd.DataFrame) -> pd.DataFrame:
 
 
 def store_to_db(ticker_source: pd.DataFrame) -> None:
-    connection =  sqlite3.connect("../databases/relational.db")
+    connection = sqlite3.connect("../databases/relational.db")
     cursor = connection.cursor()
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS equities (id INTEGER PRIMARY KEY, name TEXT, ticker TEXT, sector TEXT)"

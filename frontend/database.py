@@ -16,14 +16,14 @@ def get_date_ranges(_connection: sqlite3.Connection) -> list:
 def get_portfolio_weights(_connection: sqlite3.Connection, run_id: int) -> list:
     cursor = _connection.cursor()
     cursor.execute(
-        "SELECT weight, returns, volatility FROM portfolio_weights WHERE run_id=?", (run_id,)
+        "SELECT returns, volatility FROM portfolio_weights WHERE run_id=?", (run_id,)
     ) 
     rows = cursor.fetchall()
     cursor.close()
-    portfolio_weights = [list(map(float, row[0].split(","))) for row in rows]
-    portfolio_returns = [float(row[1]) for row in rows]
-    portfolio_volatilities = [float(row[2]) for row in rows]
-    return np.array(portfolio_weights), np.array(portfolio_returns), np.array(portfolio_volatilities)
+    #portfolio_weights = [list(map(float, row[0].split(","))) for row in rows]
+    portfolio_returns = [float(row[0]) for row in rows]
+    portfolio_volatilities = [float(row[1]) for row in rows]
+    return np.array(portfolio_returns), np.array(portfolio_volatilities)
 
 
 @st.cache_data

@@ -3,15 +3,18 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def show_time_series_data(time_series_data: pd.DataFrame) -> None:
     time_series_data.plot(figsize=(10, 5))
     plt.show()
-    
+
+
 def show_statistics(returns: pd.DataFrame, num_trading_days: int = 252) -> None:
     print(f"Expected daily return:\n{returns.mean()*num_trading_days}%")
     print(f"Expected covariance:\n{returns.cov()*num_trading_days}")
     print(f"Expected correlation:\n{returns.corr()}")
-    
+
+
 def show_random_portfolios(returns: pd.DataFrame, volatilities: np.ndarray) -> None:
     plt.figure(figsize=(10, 6))
     plt.scatter(volatilities, returns, c=returns / volatilities, marker="o")
@@ -20,8 +23,11 @@ def show_random_portfolios(returns: pd.DataFrame, volatilities: np.ndarray) -> N
     plt.ylabel("Expected Return")
     plt.colorbar(label="Sharpe Ratio")
     plt.show()
-    
-def print_optimal_portfolio(optimum: np.ndarray, expected_return: float, volatility: float, sharpe_ratio: float) -> None:
+
+
+def print_optimal_portfolio(
+    optimum: np.ndarray, expected_return: float, volatility: float, sharpe_ratio: float
+) -> None:
     print(f"Optimal weights: {optimum}")
     print(f"Expected return: {expected_return}")
     print(f"Volatility: {volatility}")
