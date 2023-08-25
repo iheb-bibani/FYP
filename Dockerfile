@@ -7,7 +7,7 @@ WORKDIR /app
 COPY . /app
 
 # Install dependencies
-RUN pip install --no-cache-dir -r frontend/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Change working directory to /app/frontend
 WORKDIR /app/frontend

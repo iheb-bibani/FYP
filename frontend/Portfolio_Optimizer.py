@@ -88,7 +88,7 @@ def show_optimal_portfolio_streamlit(
 
 def main():
     st.set_page_config(page_icon=":chart_with_upwards_trend:", page_title="Portfolio Optimizer", layout="centered")
-    connection = sqlite3.connect("/databases/relational.db")
+    connection = sqlite3.connect("../databases/relational.db")
 
     # Get available date ranges
     date_ranges = get_date_ranges(connection)
