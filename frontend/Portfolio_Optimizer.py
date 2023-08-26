@@ -206,7 +206,6 @@ def main():
     st.subheader("Scenario Analysis")
     st.markdown("Scenario analysis is a technique used to :red[analyze decisions] through :red[speculation] of various possible outcomes in financial investments.")
     tab1, tab2 = st.tabs(["Scenario Summary", "Affected Sectors"])
-    connection.close()
 
 
 if __name__ == "__main__":
