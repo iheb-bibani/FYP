@@ -89,9 +89,9 @@ def download_and_store_historical_data(connection: psycopg2.extensions.connectio
             )
             cursor.execute(
                 f"INSERT INTO {table_name} VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", values
-            )
-
-    connection.commit()
+            ) 
+        connection.commit()
+        
     cursor.close()
 
 

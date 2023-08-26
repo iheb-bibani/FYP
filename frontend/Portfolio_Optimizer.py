@@ -25,7 +25,7 @@ from descriptions import (
 )
 
 
-@st.cache_data
+@st.cache_data(ttl="30d")
 def get_three_month_yield() -> float:
     yield_rates = pd.read_html(
         "http://www.worldgovernmentbonds.com/country/singapore/"

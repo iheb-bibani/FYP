@@ -39,7 +39,7 @@ def main() -> None:
     # Generating and storing random portfolios
     weights, means, risks = generate_portfolios(log_return, stocks=tickers)
     store_portfolio_weights(weights, means, risks, run_id, connection)
-    show_random_portfolios(means, risks)
+    #show_random_portfolios(means, risks)
 
     # Optimizing and storing the optimal portfolio
     optimum, expected_return, volatility, sharpe_ratio = optimize_portfolio(
