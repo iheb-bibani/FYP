@@ -113,7 +113,6 @@ def generate_random_weights(num_stocks: int) -> np.ndarray:
 def generate_portfolios(
     returns: pd.DataFrame,
     num_portfolios: int = 10000,
-    num_trading_days: int = 252,
     stocks: List[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     portfolio_means = []
@@ -125,8 +124,8 @@ def generate_portfolios(
     for _ in range(num_portfolios):
         w = generate_random_weights(num_stocks)
         portfolio_weights.append(w)
-        mean_return = np.sum(returns.mean() * w) * num_trading_days
-        risk = np.sqrt(np.dot(w.T, np.dot(returns.cov() * num_trading_days, w)))
+        mean_return = np.sum(returns.mean() * w)
+        risk = np.sqrt(np.dot(w.T, np.dot(returns.cov(), w)))
         portfolio_means.append(mean_return)
         portfolio_risks.append(risk)
         sharpe_ratios.append(mean_return / risk)
@@ -147,11 +146,11 @@ def generate_portfolios(
 
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
 def statistics(
-    weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252
+    weights: np.ndarray, returns: pd.DataFrame
 ) -> np.ndarray:
-    portfolio_return = np.sum(returns.mean() * weights) * num_trading_days
+    portfolio_return = np.sum(returns.mean() * weights)
     portfolio_volatility = np.sqrt(
-        np.dot(weights.T, np.dot(returns.cov() * num_trading_days, weights))
+        np.dot(weights.T, np.dot(returns.cov(), weights))
     )
     return np.array(
         [
@@ -164,9 +163,9 @@ def statistics(
 
 # Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
 def min_func_sharpe(
-    weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252
+    weights: np.ndarray, returns: pd.DataFrame
 ) -> float:
-    return -statistics(weights, returns, num_trading_days)[2]
+    return -statistics(weights, returns)[2]
 
 
 # Finds the optimal portfolio weights that maximizes the Sharpe Ratio

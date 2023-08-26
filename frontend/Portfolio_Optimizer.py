@@ -1,13 +1,13 @@
-import psycopg2
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import datetime
-from typing import List
 from streamlit_extras.switch_page_button import switch_page
 from streamlit_extras.chart_container import chart_container
 from postgres import connection
+from datetime import datetime
+import pandas_market_calendars as mcal
 
 from database import (
     get_date_ranges,
@@ -23,6 +23,11 @@ from descriptions import (
     main_description,
     risk_free_info,
 )
+
+def trading_days_between_dates(start_date: datetime, end_date: datetime, exchange: str = "XSES") -> int:
+    cal = mcal.get_calendar(exchange)
+    trading_days = cal.schedule(start_date=start_date, end_date=end_date)
+    return len(trading_days)
 
 
 @st.cache_data(ttl="30d")
@@ -109,6 +114,10 @@ def main():
         selected_end_date = selected_end_date.strip()
         run_id = get_run_id(connection, selected_start_date, selected_end_date)
 
+        start_date_obj = datetime.strptime(selected_start_date, "%Y-%m-%d")
+        end_date_obj = datetime.strptime(selected_end_date, "%Y-%m-%d")
+        trading_days = trading_days_between_dates(start_date_obj, end_date_obj)
+        
         three_mnth_yield = get_three_month_yield()
         risk_free_rate = (
             st.number_input(
@@ -138,7 +147,7 @@ def main():
 
     st.subheader(":chart_with_upwards_trend: Optimal Portfolio Allocation")
     st.subheader(
-        f"for {datetime.strptime(selected_start_date, '%Y-%m-%d').strftime('%d %B %Y')} to {datetime.strptime(selected_end_date, '%Y-%m-%d').strftime('%d %B %Y')}"
+        f"for {start_date_obj.strftime('%d %B %Y')} to {end_date_obj.strftime('%d %B %Y')}"
     )
     st.markdown(main_description(len(portfolio_returns), len(tickers)))
     with st.expander("Show More Information About Sharpe Ratio"):
@@ -148,7 +157,7 @@ def main():
     st.markdown(
         "Portfolios contain :green[4 to 20 stocks] with a :green[minimum weight of 5%]."
     )
-    st.subheader("Optimal Portfolio Allocation and Statistics")
+    st.subheader(f"Allocation and Statistics for :blue[{trading_days}] Trading Days")
     left_col, right_col = st.columns((2,1))
     with left_col:
         # Creating DataFrame to hold the ticker and weights
@@ -163,7 +172,7 @@ def main():
         ticker_names = get_ticker_names(connection)
         ticker_weights_df["Name"] = ticker_weights_df["Ticker"].map(ticker_names)
         # Calculating the expected returns based on the weights
-        ticker_weights_df["Expected Returns ($)"] = ticker_weights_df["Weight (%)"]/100 * portfolio_value * optimal_returns
+        ticker_weights_df["Expected Returns ($)"] = ticker_weights_df["Weight (%)"]/100 * portfolio_value * (optimal_returns * trading_days)
         ticker_weights_df["Expected Returns ($)"] = ticker_weights_df["Expected Returns ($)"].map(lambda x: np.round(x, 2))
         expected_return = ticker_weights_df["Expected Returns ($)"].sum()
         
@@ -183,10 +192,11 @@ def main():
         # Displaying the DataFrame with Name as the index
         st.dataframe(ticker_weights_df.set_index("Name"), width=450, height=200)
     with right_col:
-        st.write(f"Return: {np.round(optimal_returns*100,2)}%")
-        st.write(f"Volatility: {np.round(optimal_volatilities*100, 2)}%")
+        st.write(f"Return: {np.round(optimal_returns*trading_days*100,2)}%")
+        st.write(f"Volatility: {np.round(optimal_volatilities*np.sqrt(trading_days)*100, 2)}%")
+        sharpe_ratio = (optimal_returns*trading_days - risk_free_rate) / (optimal_volatilities*np.sqrt(trading_days))
         st.write(
-            f"Sharpe Ratio: {np.round((optimal_returns-risk_free_rate)/optimal_volatilities, 2)}"
+            f"Sharpe Ratio: {np.round(sharpe_ratio, 2)}"
         )
     # Scatter plot using portfolio weights
     st.write(
