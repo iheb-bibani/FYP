@@ -1,36 +1,38 @@
 import pandas as pd
 import yfinance as yf
 import datetime
-import sqlite3
 import time
 import talib
 from urllib.error import HTTPError
 import numpy as np
-
+import psycopg2
+from postgres import connection
 
 def main() -> None:
-    connection = sqlite3.connect("../databases/relational.db")
     cursor = connection.cursor()
-    ticker_source = cursor.execute("SELECT * FROM equities").fetchall()
+    cursor.execute("SELECT * FROM equities")
+    ticker_source = cursor.fetchall()
     cursor.close()
     data = pd.DataFrame(ticker_source, columns=["id", "name", "ticker", "sector"])
     print(data)
-    download_and_store_historical_data()
+    download_and_store_historical_data(connection)
 
     # Prototyping for adding TA to data
-    stock_data_dict = add_ta_to_data()
+    stock_data_dict = add_ta_to_data(connection)
     for ticker, data in stock_data_dict.items():
         print(f"Data for {ticker}:")
         data.replace(0, np.nan, inplace=True)
         print(data.describe())
         print(data.info())
         print(data)
+        
+    connection.close()
 
 
-def download_and_store_historical_data() -> None:
-    connection = sqlite3.connect("../databases/relational.db")
+def download_and_store_historical_data(connection: psycopg2.extensions.connection) -> None:
     cursor = connection.cursor()
-    tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
+    cursor.execute("SELECT ticker FROM equities")
+    tickers = cursor.fetchall()
 
     for ticker_tuple in tickers:
         ticker = ticker_tuple[0]
@@ -42,9 +44,8 @@ def download_and_store_historical_data() -> None:
         )
 
         # Get the latest date in the database
-        latest_date_in_db = cursor.execute(
-            f"SELECT MAX(Date) FROM {table_name}"
-        ).fetchone()[0]
+        cursor.execute(f"SELECT MAX(Date) FROM {table_name}")
+        latest_date_in_db = cursor.fetchone()[0]
         if latest_date_in_db:
             # Start from the day after the latest date in the database
             yesterday_date = (
@@ -87,24 +88,24 @@ def download_and_store_historical_data() -> None:
                 row["Stock Splits"],
             )
             cursor.execute(
-                f"INSERT INTO {table_name} VALUES (?, ?, ?, ?, ?, ?, ?, ?)", values
+                f"INSERT INTO {table_name} VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", values
             )
 
     connection.commit()
-    connection.close()
+    cursor.close()
 
 
-def add_ta_to_data() -> dict:
-    connection = sqlite3.connect("../databases/relational.db")
+def add_ta_to_data(connection: psycopg2.extensions.connection) -> dict:
     cursor = connection.cursor()
-    tickers = cursor.execute("SELECT ticker FROM equities LIMIT 1").fetchall()
-
+    cursor.execute("SELECT ticker FROM equities LIMIT 1")
+    tickers = cursor.fetchall()
     stock_data_dict = {}
     for ticker_tuple in tickers:
         ticker = ticker_tuple[0]
         table_name = f"stock_{ticker[:3]}"  # Remove the .SI suffix
         query = f"SELECT * FROM {table_name}"
-        data = cursor.execute(query).fetchall()
+        cursor.execute(query)
+        data = cursor.fetchall()
         columns = [
             "Date",
             "Open",
@@ -185,7 +186,6 @@ def add_ta_to_data() -> dict:
         stock_data_dict[ticker] = df
 
     cursor.close()
-    connection.close()
     return stock_data_dict
 
 

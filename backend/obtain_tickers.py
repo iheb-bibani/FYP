@@ -1,16 +1,16 @@
 import pandas as pd
 import yfinance as yf
 import datetime
-import sqlite3
-from typing import List
-
+import psycopg2
+from postgres import connection
 
 def main() -> None:
     ticker_source = fetch_tickers()
     print(ticker_source)
     filtered_stocks = filter_stocks(ticker_source)
     print(f"{len(filtered_stocks)} stocks remaining")
-    store_to_db(filtered_stocks)
+    store_to_db(filtered_stocks, connection)
+    connection.close()
 
 
 def fetch_tickers() -> pd.DataFrame:
@@ -65,24 +65,25 @@ def filter_stocks(ticker_source: pd.DataFrame) -> pd.DataFrame:
     return ticker_source
 
 
-def store_to_db(ticker_source: pd.DataFrame) -> None:
-    connection = sqlite3.connect("../databases/relational.db")
+def store_to_db(ticker_source: pd.DataFrame, connection: psycopg2.extensions.connection) -> None:
     cursor = connection.cursor()
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS equities (id INTEGER PRIMARY KEY, name TEXT, ticker TEXT, sector TEXT)"
     )
-    data = cursor.execute("SELECT * FROM equities").fetchall()
+    cursor.execute("SELECT * FROM equities")
+    data = cursor.fetchall()
 
-    if data == []:
+    if not data:
         for idx, stock in enumerate(ticker_source.iterrows()):
             cursor.execute(
-                f'INSERT INTO equities VALUES ({idx}, "{stock[1][1]}", "{stock[1][2]}", "{stock[1][3]}")'
+                "INSERT INTO equities (id, name, ticker, sector) VALUES (%s, %s, %s, %s)",
+                (idx, stock[1][1], stock[1][2], stock[1][3])
             )
     else:
         data = pd.DataFrame(data, columns=["id", "name", "ticker", "sector"])
         print(data)
     connection.commit()
-    connection.close()
+    cursor.close()
 
 
 if __name__ == "__main__":

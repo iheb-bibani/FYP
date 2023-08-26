@@ -1,19 +1,35 @@
 import numpy as np
 import pandas as pd
-import yfinance as yf
-import matplotlib.pyplot as plt
 import scipy.optimize as optimization
-import sqlite3
+import argparse
+from datetime import datetime
 from typing import Tuple, List
 from demo import show_random_portfolios, show_optimal_portfolio, print_optimal_portfolio
-
-start_date = "2022-07-01"
-end_date = "2023-06-30"
-
+import psycopg2
+from postgres import connection
 
 def main() -> None:
-    connection = sqlite3.connect("../databases/relational.db")
-    data = download_data(connection)
+    parser = argparse.ArgumentParser(description="Portfolio analysis.")
+    parser.add_argument('--start_date', type=str, default="2022-01-01", help='Start date in YYYY-MM-DD format')
+    parser.add_argument('--end_date', type=str, default="2022-12-31", help='End date in YYYY-MM-DD format')
+
+    args = parser.parse_args()
+    start_date = args.start_date
+    end_date = args.end_date
+
+    # Validate start_date and end_date
+    if not is_valid_date(start_date) or not is_valid_date(end_date):
+        print("Invalid date format. Dates should be in YYYY-MM-DD format and should be valid.")
+        return
+
+    start_date_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    if start_date_dt >= end_date_dt:
+        print("Start date must be before end date.")
+        return
+    
+    data = download_data(start_date, end_date, connection)
     log_return = calculate_returns(data)
     tickers = data.columns.tolist()  # Extracting the tickers as a list
     run_id = store_ticker_run(
@@ -37,19 +53,31 @@ def main() -> None:
 
     connection.close()
 
+def is_valid_date(date_str: str, format: str = "%Y-%m-%d") -> bool:
+    try:
+        datetime.strptime(date_str, format)
+        return True
+    except ValueError:
+        return False
+    
+import psycopg2
+import pandas as pd
 
-def download_data(connection: sqlite3.Connection) -> pd.DataFrame:
+def download_data(start_date: str, end_date: str, connection: psycopg2.extensions.connection) -> pd.DataFrame:
     cursor = connection.cursor()
-    tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
+    cursor.execute("SELECT ticker FROM equities")
+    tickers = cursor.fetchall()
     stock_data = {}
 
     for stock_tuple in tickers:
         stock = stock_tuple[0]
         table_name = f"stock_{stock[:3]}"  # Remove the .SI suffix
-        query = f'SELECT Date, Close FROM {table_name} WHERE Date >= "{start_date}" AND Date <= "{end_date}"'
-        data = cursor.execute(query).fetchall()
-        dates, closes = zip(*data)
-        stock_data[stock] = pd.Series(closes, index=pd.to_datetime(dates))
+        query = f'SELECT Date, Close FROM {table_name} WHERE Date >= %s AND Date <= %s'
+        cursor.execute(query, (start_date, end_date))
+        data = cursor.fetchall()
+        if data:
+            dates, closes = zip(*data)
+            stock_data[stock] = pd.Series(closes, index=pd.to_datetime(dates))
 
     cursor.close()
 
@@ -175,13 +203,13 @@ def optimize_portfolio(
 
 
 def store_ticker_run(
-    start_date: str, end_date: str, tickers: List[str], connection: sqlite3.Connection
+    start_date: str, end_date: str, tickers: List[str], connection: psycopg2.extensions.connection
 ) -> int:
     cursor = connection.cursor()
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS ticker_run (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             start_date TEXT,
             end_date TEXT,
             tickers TEXT
@@ -190,10 +218,10 @@ def store_ticker_run(
     )
     tickers_str = ",".join(tickers)
     cursor.execute(
-        "INSERT INTO ticker_run (start_date, end_date, tickers) VALUES (?, ?, ?)",
+        "INSERT INTO ticker_run (start_date, end_date, tickers) VALUES (%s, %s, %s) RETURNING id",
         (start_date, end_date, tickers_str),
     )
-    run_id = cursor.lastrowid
+    run_id = cursor.fetchone()[0]
     connection.commit()
     cursor.close()
     return run_id
@@ -204,13 +232,13 @@ def store_portfolio_weights(
     means: np.ndarray,
     risks: np.ndarray,
     run_id: int,
-    connection: sqlite3.Connection,
+    connection: psycopg2.extensions.connection,
 ):
     cursor = connection.cursor()
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS portfolio_weights (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             run_id INTEGER,
             weight TEXT,
             returns REAL,
@@ -222,7 +250,7 @@ def store_portfolio_weights(
     for weights, mean, risk in zip(portfolio_weights, means, risks):
         weights_str = ",".join([str(weight) for weight in weights])
         cursor.execute(
-            "INSERT INTO portfolio_weights (run_id, weight, returns, volatility) VALUES (?, ?, ?, ?)",
+            "INSERT INTO portfolio_weights (run_id, weight, returns, volatility) VALUES (%s, %s, %s, %s)",
             (run_id, weights_str, mean, risk),
         )
     connection.commit()
@@ -234,13 +262,13 @@ def store_optimal_weights(
     means: np.float_,
     risks: np.float_,
     run_id: int,
-    connection: sqlite3.Connection,
+    connection: psycopg2.extensions.connection,
 ) -> int:
     cursor = connection.cursor()
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS optimal_weights (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             run_id INTEGER,
             weight TEXT,
             returns REAL,
@@ -251,12 +279,11 @@ def store_optimal_weights(
     )
     weights_str = ",".join([str(weight) for weight in optimum_weights])
     cursor.execute(
-        "INSERT INTO optimal_weights (run_id, weight, returns, volatility) VALUES (?, ?, ?, ?)",
+        "INSERT INTO optimal_weights (run_id, weight, returns, volatility) VALUES (%s, %s, %s, %s)",
         (run_id, weights_str, means, risks),
     )
     connection.commit()
     cursor.close()
-
 
 if __name__ == "__main__":
     main()
