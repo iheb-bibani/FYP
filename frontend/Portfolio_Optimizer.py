@@ -1,4 +1,4 @@
-import sqlite3
+import psycopg2
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List
 from streamlit_extras.switch_page_button import switch_page
 from streamlit_extras.chart_container import chart_container
+from postgres import connection
 
 from database import (
     get_date_ranges,
@@ -88,7 +89,6 @@ def show_optimal_portfolio_streamlit(
 
 def main():
     st.set_page_config(page_icon=":chart_with_upwards_trend:", page_title="Portfolio Optimizer", layout="centered")
-    connection = sqlite3.connect("../databases/relational.db")
 
     # Get available date ranges
     date_ranges = get_date_ranges(connection)
