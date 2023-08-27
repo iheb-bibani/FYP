@@ -8,6 +8,8 @@ from streamlit_extras.chart_container import chart_container
 from postgres import connection
 from datetime import datetime
 import pandas_market_calendars as mcal
+import matplotlib.pyplot as plt
+from VAR import main as var_main
 
 from database import (
     get_date_ranges,
@@ -40,7 +42,7 @@ def get_three_month_yield() -> float:
 
 
 @st.cache_resource
-def show_optimal_portfolio_streamlit(
+def show_portfolios(
     portfolio_returns: list = None,
     portfolio_volatilities: list = None,
     optimal_returns: list = None,
@@ -89,7 +91,38 @@ def show_optimal_portfolio_streamlit(
         yaxis_title="Expected Return",
         showlegend=True,
     )
-    st.plotly_chart(fig)
+    st.plotly_chart(fig, use_container_width=True)
+
+def show_monte_carlo_simulations(simulation_data: np.ndarray, days: int, portfolio_value: int, var_values: list, confidence_levels: list):
+    # Create the base line chart for simulated portfolio values
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=list(range(len(simulation_data[0]))), y=simulation_data[0], mode='lines', name='Simulated Portfolio Value'))
+    length = len(simulation_data[0])
+    
+    # Add VaR lines to the plot
+    for var_value, conf_level in zip(var_values, confidence_levels):
+        fig.add_shape(
+            go.layout.Shape(
+                type="line",
+                x0=0,
+                x1=length,
+                y0=portfolio_value - var_value,
+                y1=portfolio_value - var_value,
+                line=dict(width=2, dash="dash"),
+            )
+        )
+        fig.add_trace(go.Scatter(x=[0, length], y=[portfolio_value - var_value, portfolio_value - var_value], mode='lines', name=f'VaR at {conf_level*100}% Confidence Level'))
+        st.write(f'VaR at {conf_level*100}% confidence level: :red[${round(portfolio_value - var_value, 2)}] which is a loss of :red[{round(var_value / np.mean(simulation_data[0]) * 100, 2)}%] of the portfolio value')
+
+    # Add labels and title
+    fig.update_layout(
+        title=f'Monte Carlo Simulation for Portfolio over {days} Days',
+        xaxis_title='Iteration',
+        yaxis_title='Simulated Portfolio Value'
+    )
+
+    # Display the plot in Streamlit
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def main():
@@ -133,6 +166,12 @@ def main():
         )
         
         portfolio_value = st.number_input("Enter Portfolio Value ($)", value=10000.0, step=1000.0, format="%.2f", min_value=1000.0, max_value=1000000.0)
+        
+        max_confidence_level = st.slider("Select Maximum Confidence Level", min_value=0.75, max_value=0.99, value=0.99, step=0.01, help="Select the maximum confidence level to calculate VaR for.")
+        confidence_levels = np.arange(max_confidence_level-0.06, max_confidence_level, 0.02)
+        confidence_levels = np.round(confidence_levels, 2)
+        
+        number_of_days_to_simulate = st.number_input("Enter Number of Days to Simulate", value=trading_days, step=1, format="%d", min_value=1, max_value=trading_days, help="Select the number of days to simulate for Monte Carlo VaR.")
 
     # Get portfolio and optimal weights for selected dates
     (
@@ -162,7 +201,7 @@ def main():
     with left_col:
         # Creating DataFrame to hold the ticker and weights
         ticker_weights_df = pd.DataFrame(
-            {"Ticker": tickers, "Weight (%)": np.round(optimal_weights * 100, 1)}
+            {"Ticker": tickers, "Weight (%)": np.round(optimal_weights * 100, 2)}
         )
 
         # Remove rows with weights equal to zero
@@ -190,7 +229,7 @@ def main():
         ticker_weights_df = pd.concat([ticker_weights_df, total_weight_row])
 
         # Displaying the DataFrame with Name as the index
-        st.dataframe(ticker_weights_df.set_index("Name"), width=450, height=200)
+        st.dataframe(ticker_weights_df.set_index("Name"), use_container_width=True)
     with right_col:
         st.write(f"Return: {np.round(optimal_returns*trading_days*100,2)}%")
         st.write(f"Volatility: {np.round(optimal_volatilities*np.sqrt(trading_days)*100, 2)}%")
@@ -203,16 +242,36 @@ def main():
         "Below is the scatter plot of the :blue[Risk Adjusted Returns] of each portfolio generated and the :green[Optimal Portfolio]."
     )
 
-    show_optimal_portfolio_streamlit(
+    show_portfolios(
         portfolio_returns, portfolio_volatilities, optimal_returns, optimal_volatilities
     )
     
     st.subheader("Value At Risk (VaR)")
-    st.markdown("VaR is a measure of the :red[losses] that a portfolio may experience over a given time period and confidence level.")
+    st.markdown(f"VaR is a measure of the :red[losses] that a portfolio may experience over a :blue[{trading_days}-day] period at given :red[confidence levels].")
     #view_simulations = st.button("View Monte Carlo Simulations")
     # if view_simulations:
     #     switch_page("monte")
-    tab1, tab2, tab3, tab4 = st.tabs(["VAR Summary", "Monte Carlo VAR", "Historic VAR", "Parametric VAR"])
+    # parametric_var, historical_var_1yr, historical_var_2yr, historical_var_3yr, monte_carlo_var, simulated_portfolio_val
+    portfolios_and_simulation = var_main(run_id, selected_start_date, portfolio_value, confidence_levels, number_of_days_to_simulate)
+    portfolios, simuation = portfolios_and_simulation[:-1], portfolios_and_simulation[-1]
+    summary_data = pd.DataFrame()
+    for i, conf in enumerate(confidence_levels):
+        summary_data[f"{conf*100} % VaR"] = [
+            portfolios[0][i],  # Monte Carlo VaR
+            portfolios[1][i],  # 1-year historical VaR
+            portfolios[2][i],  # 2-year historical VaR
+            portfolios[3][i],  # 3-year historical VaR
+            portfolios[4][i],  # Parametric VaR
+        ]
+    summary_data.index = ["Monte Carlo VaR", "1 Year Historical VaR", "2 Year Historical VaR", "3 Year Historical VaR", "Parametric VaR"]
+    summary_data.index.name = "Methodology"
+    summary_data = summary_data.round(2)
+    tab1, tab2, tab3 = st.tabs(["VAR Summary", "Monte Carlo Simulations", "Affected Sectors"])
+    with tab1:
+        st.dataframe(summary_data, use_container_width=True)
+    with tab2:
+        show_monte_carlo_simulations(simuation, number_of_days_to_simulate, portfolio_value, portfolios[0], confidence_levels)
+        
     st.subheader("Scenario Analysis")
     st.markdown("Scenario analysis is a technique used to :red[analyze decisions] through :red[speculation] of various possible outcomes in financial investments.")
     tab1, tab2 = st.tabs(["Scenario Summary", "Affected Sectors"])

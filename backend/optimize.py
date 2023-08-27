@@ -50,7 +50,6 @@ def main() -> None:
     # Printing and showing the optimal portfolio
     # print_optimal_portfolio(optimum, expected_return, volatility, sharpe_ratio)
     # show_optimal_portfolio(expected_return, volatility, means, risks)
-
     connection.close()
 
 def is_valid_date(date_str: str, format: str = "%Y-%m-%d") -> bool:
