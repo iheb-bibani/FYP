@@ -4,6 +4,7 @@ import datetime
 import psycopg2
 from postgres import connection
 
+
 def main() -> None:
     ticker_source = fetch_tickers()
     print(ticker_source)
@@ -65,7 +66,9 @@ def filter_stocks(ticker_source: pd.DataFrame) -> pd.DataFrame:
     return ticker_source
 
 
-def store_to_db(ticker_source: pd.DataFrame, connection: psycopg2.extensions.connection) -> None:
+def store_to_db(
+    ticker_source: pd.DataFrame, connection: psycopg2.extensions.connection
+) -> None:
     cursor = connection.cursor()
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS equities (id INTEGER PRIMARY KEY, name TEXT, ticker TEXT, sector TEXT)"
@@ -77,7 +80,7 @@ def store_to_db(ticker_source: pd.DataFrame, connection: psycopg2.extensions.con
         for idx, stock in enumerate(ticker_source.iterrows()):
             cursor.execute(
                 "INSERT INTO equities (id, name, ticker, sector) VALUES (%s, %s, %s, %s)",
-                (idx, stock[1][1], stock[1][2], stock[1][3])
+                (idx, stock[1][1], stock[1][2], stock[1][3]),
             )
     else:
         data = pd.DataFrame(data, columns=["id", "name", "ticker", "sector"])

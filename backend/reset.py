@@ -1,9 +1,10 @@
 from postgres import connection
 
+
 def reset_tables(connection):
     cursor = connection.cursor()
-    
-    #tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
+
+    # tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
 
     # Delete all data from the portfolio_weights table
     # for table_name in tickers:

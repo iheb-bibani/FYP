@@ -8,6 +8,7 @@ import numpy as np
 import psycopg2
 from postgres import connection
 
+
 def main() -> None:
     cursor = connection.cursor()
     cursor.execute("SELECT * FROM equities")
@@ -25,11 +26,13 @@ def main() -> None:
         print(data.describe())
         print(data.info())
         print(data)
-        
+
     connection.close()
 
 
-def download_and_store_historical_data(connection: psycopg2.extensions.connection) -> None:
+def download_and_store_historical_data(
+    connection: psycopg2.extensions.connection,
+) -> None:
     cursor = connection.cursor()
     cursor.execute("SELECT ticker FROM equities")
     tickers = cursor.fetchall()
@@ -88,10 +91,11 @@ def download_and_store_historical_data(connection: psycopg2.extensions.connectio
                 row["Stock Splits"],
             )
             cursor.execute(
-                f"INSERT INTO {table_name} VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", values
-            ) 
+                f"INSERT INTO {table_name} VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                values,
+            )
         connection.commit()
-        
+
     cursor.close()
 
 

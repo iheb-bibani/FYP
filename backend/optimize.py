@@ -8,10 +8,21 @@ from demo import show_random_portfolios, show_optimal_portfolio, print_optimal_p
 import psycopg2
 from postgres import connection
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Portfolio analysis.")
-    parser.add_argument('--start_date', type=str, default="2022-01-01", help='Start date in YYYY-MM-DD format')
-    parser.add_argument('--end_date', type=str, default="2022-12-31", help='End date in YYYY-MM-DD format')
+    parser.add_argument(
+        "--start_date",
+        type=str,
+        default="2022-01-01",
+        help="Start date in YYYY-MM-DD format",
+    )
+    parser.add_argument(
+        "--end_date",
+        type=str,
+        default="2022-12-31",
+        help="End date in YYYY-MM-DD format",
+    )
 
     args = parser.parse_args()
     start_date = args.start_date
@@ -19,7 +30,9 @@ def main() -> None:
 
     # Validate start_date and end_date
     if not is_valid_date(start_date) or not is_valid_date(end_date):
-        print("Invalid date format. Dates should be in YYYY-MM-DD format and should be valid.")
+        print(
+            "Invalid date format. Dates should be in YYYY-MM-DD format and should be valid."
+        )
         return
 
     start_date_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -28,7 +41,7 @@ def main() -> None:
     if start_date_dt >= end_date_dt:
         print("Start date must be before end date.")
         return
-    
+
     data = download_data(start_date, end_date, connection)
     log_return = calculate_returns(data)
     tickers = data.columns.tolist()  # Extracting the tickers as a list
@@ -39,7 +52,7 @@ def main() -> None:
     # Generating and storing random portfolios
     weights, means, risks = generate_portfolios(log_return, stocks=tickers)
     store_portfolio_weights(weights, means, risks, run_id, connection)
-    #show_random_portfolios(means, risks)
+    # show_random_portfolios(means, risks)
 
     # Optimizing and storing the optimal portfolio
     optimum, expected_return, volatility, sharpe_ratio = optimize_portfolio(
@@ -52,17 +65,22 @@ def main() -> None:
     # show_optimal_portfolio(expected_return, volatility, means, risks)
     connection.close()
 
+
 def is_valid_date(date_str: str, format: str = "%Y-%m-%d") -> bool:
     try:
         datetime.strptime(date_str, format)
         return True
     except ValueError:
         return False
-    
+
+
 import psycopg2
 import pandas as pd
 
-def download_data(start_date: str, end_date: str, connection: psycopg2.extensions.connection) -> pd.DataFrame:
+
+def download_data(
+    start_date: str, end_date: str, connection: psycopg2.extensions.connection
+) -> pd.DataFrame:
     cursor = connection.cursor()
     cursor.execute("SELECT ticker FROM equities")
     tickers = cursor.fetchall()
@@ -71,7 +89,7 @@ def download_data(start_date: str, end_date: str, connection: psycopg2.extension
     for stock_tuple in tickers:
         stock = stock_tuple[0]
         table_name = f"stock_{stock[:3]}"  # Remove the .SI suffix
-        query = f'SELECT Date, Close FROM {table_name} WHERE Date >= %s AND Date <= %s'
+        query = f"SELECT Date, Close FROM {table_name} WHERE Date >= %s AND Date <= %s"
         cursor.execute(query, (start_date, end_date))
         data = cursor.fetchall()
         if data:
@@ -144,13 +162,9 @@ def generate_portfolios(
 
 
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
-def statistics(
-    weights: np.ndarray, returns: pd.DataFrame
-) -> np.ndarray:
+def statistics(weights: np.ndarray, returns: pd.DataFrame) -> np.ndarray:
     portfolio_return = np.sum(returns.mean() * weights)
-    portfolio_volatility = np.sqrt(
-        np.dot(weights.T, np.dot(returns.cov(), weights))
-    )
+    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights)))
     return np.array(
         [
             portfolio_return,
@@ -161,9 +175,7 @@ def statistics(
 
 
 # Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
-def min_func_sharpe(
-    weights: np.ndarray, returns: pd.DataFrame
-) -> float:
+def min_func_sharpe(weights: np.ndarray, returns: pd.DataFrame) -> float:
     return -statistics(weights, returns)[2]
 
 
@@ -201,7 +213,10 @@ def optimize_portfolio(
 
 
 def store_ticker_run(
-    start_date: str, end_date: str, tickers: List[str], connection: psycopg2.extensions.connection
+    start_date: str,
+    end_date: str,
+    tickers: List[str],
+    connection: psycopg2.extensions.connection,
 ) -> int:
     cursor = connection.cursor()
     cursor.execute(
@@ -282,6 +297,7 @@ def store_optimal_weights(
     )
     connection.commit()
     cursor.close()
+
 
 if __name__ == "__main__":
     main()
