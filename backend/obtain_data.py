@@ -41,7 +41,9 @@ def download_and_store_historical_data(
         ticker = ticker_tuple[0]
 
         # Create a new table for each stock if it doesn't exist
-        table_name = f"stock_{ticker[:3]}" if ticker != "^STI" else "STI" # Remove the .SI suffix
+        table_name = (
+            f"stock_{ticker[:3]}" if ticker != "^STI" else "STI"
+        )  # Remove the .SI suffix
         cursor.execute(
             f"CREATE TABLE IF NOT EXISTS {table_name} (Date TEXT, Open REAL, High REAL, Low REAL, Close REAL, Adj_Close REAL, Volume REAL)"
         )
@@ -136,7 +138,7 @@ def add_ta_to_data(connection: psycopg2.extensions.connection) -> dict:
         df["Williams_R"] = talib.WILLR(df["High"], df["Low"], df["Adj_Close"])
         df["DX"] = talib.DX(df["High"], df["Low"], df["Adj_Close"])
         df["MINUS_DI"] = talib.MINUS_DI(df["High"], df["Low"], df["Adj_Close"])
-        df["PLUS_DI"] = talib.PLUS_DI(df["High"], df["Low"], df["Adj_Close"])
+        df["PLUS_DI"] = talib.PLUS_DI(df["High"], df["Low"], df["Adj_Close"])q
         df["MINUS_DM"] = talib.MINUS_DM(df["High"], df["Low"])
         df["PLUS_DM"] = talib.PLUS_DM(df["High"], df["Low"])
 

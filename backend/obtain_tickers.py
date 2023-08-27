@@ -11,7 +11,12 @@ def main() -> None:
     filtered_stocks = filter_stocks(ticker_source)
     print(f"{len(filtered_stocks)} stocks remaining")
     next_index = len(filtered_stocks)
-    sti_index = [next_index+1,"Straight Times Index","^STI","Benchmark"] # Adding STI as a benchmark
+    sti_index = [
+        next_index + 1,
+        "Straight Times Index",
+        "^STI",
+        "Benchmark",
+    ]  # Adding STI as a benchmark
     filtered_stocks.loc[next_index] = sti_index
     store_to_db(filtered_stocks, connection)
     connection.close()
@@ -76,14 +81,14 @@ def store_to_db(
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS equities (id SERIAL PRIMARY KEY, name TEXT, ticker TEXT UNIQUE, sector TEXT)"
     )
-    
+
     # Checking for duplicate tickers
     for _, stock in ticker_source.iterrows():
         cursor.execute(
             "INSERT INTO equities (name, ticker, sector) VALUES (%s, %s, %s) ON CONFLICT (ticker) DO NOTHING",
-            (stock[1], stock[2], stock[3])
+            (stock[1], stock[2], stock[3]),
         )
-        
+
     connection.commit()
     cursor.close()
 
