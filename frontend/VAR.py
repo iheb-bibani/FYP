@@ -133,10 +133,9 @@ def download_data(
     )  # Download from 3 years ago to the start date
     cursor = connection.cursor()
     stock_data = {}
-    print(tickers)
     for stock in tickers:
         table_name = f"stock_{stock[:3]}"  # Remove the .SI suffix
-        query = f"SELECT Date, Close FROM {table_name} WHERE Date >= %s AND Date <= %s"
+        query = f"SELECT Date, Adj_Close FROM {table_name} WHERE Date >= %s AND Date <= %s"
         cursor.execute(query, (start_date, end_date))
         data = cursor.fetchall()
         if data:
