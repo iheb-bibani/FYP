@@ -25,3 +25,11 @@ more_info_portfolios = f"""
     - Calculated using 252 trading days
     - Risk-free rate: 0%\n
     """
+
+scenario_analysis_info = """
+            Scenario analysis is a technique used to analyze decisions through speculation of various possible outcomes in financial investments.\n
+            In this case, we are using scenario analysis to determine the impact of a market crash on the portfolio.\n
+            The market crash is simulated by looking at the returns of the :blue[STI] which is the :blue[benchmark] for the Singapore stock market.\n
+            The returns of :green[each stock] in the portfolio is then historically calculated for the same period and then
+            compared to the returns of the :blue[benchmark] to determine the :red[impact] of the market crash on the portfolio.
+        """
