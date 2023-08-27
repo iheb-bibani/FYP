@@ -266,7 +266,7 @@ def main():
     summary_data.index = ["Monte Carlo VaR", "1 Year Historical VaR", "2 Year Historical VaR", "3 Year Historical VaR", "Parametric VaR"]
     summary_data.index.name = "Methodology"
     summary_data = summary_data.round(2)
-    tab1, tab2, tab3 = st.tabs(["VAR Summary", "Monte Carlo Simulations", "Affected Sectors"])
+    tab1, tab2, tab3 = st.tabs(["VAR Summary", "Monte Carlo Simulations"])
     with tab1:
         st.dataframe(summary_data, use_container_width=True)
     with tab2:

@@ -7,3 +7,4 @@ psycopg2_binary==2.9.7
 python-dotenv==1.0.0
 streamlit==1.26.0
 streamlit_extras==0.3.0
+scipy==1.11.2
