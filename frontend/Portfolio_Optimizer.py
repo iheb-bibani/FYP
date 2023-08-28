@@ -14,6 +14,7 @@ from database import (
     get_date_ranges,
     get_portfolio_weights,
     get_optimal_weights,
+    get_efficient_frontier,
     get_ticker_data,
     get_run_id,
     get_ticker_names,
@@ -50,7 +51,10 @@ def show_portfolios(
     portfolio_volatilities: list = None,
     optimal_returns: list = None,
     optimal_volatilities: list = None,
+    efficient_returns: np.ndarray = None,
+    efficient_volatilities: np.ndarray = None,
 ) -> None:
+    
     sharpe_ratios = []
     progress_container = st.empty()
     total_weights = len(portfolio_returns)
@@ -73,7 +77,7 @@ def show_portfolios(
             x=portfolio_volatilities,
             y=portfolio_returns,
             mode="markers",
-            marker=dict(size=10, color=sharpe_ratios, colorscale="Viridis"),
+            marker=dict(size=5, color=sharpe_ratios, colorscale="Viridis"),
             name="Portfolios",
         )
     )
@@ -83,10 +87,19 @@ def show_portfolios(
             x=optimal_volatilities,
             y=optimal_returns,
             mode="markers",
-            marker=dict(size=20, color="green"),
+            marker=dict(size=15, color="green"),
             name="Optimal Portfolio",
         )
     )
+    
+    fig.add_trace(
+        go.Scatter(
+            x=efficient_volatilities,
+            y=efficient_returns,
+            mode="lines+markers",
+            marker=dict(size=5, color="magenta"),
+            name="Efficient Frontier",
+    ))
 
     fig.update_layout(
         title="Portfolio Weights Scatter Plot",
@@ -156,8 +169,8 @@ def show_monte_carlo_simulations(
 def get_summary_data_and_simulation(
     run_id: int,
     selected_start_date: str,
-    selected_end_date: str,
     portfolio_value: int,
+    optimal_weights: np.ndarray,
     confidence_levels: List[float],
     number_of_days_to_simulate: int,
 ) -> Tuple[pd.DataFrame, np.ndarray, List[float]]:
@@ -165,6 +178,7 @@ def get_summary_data_and_simulation(
         run_id,
         selected_start_date,
         portfolio_value,
+        optimal_weights,
         confidence_levels,
         number_of_days_to_simulate,
     )
@@ -195,8 +209,8 @@ def get_summary_data_and_simulation(
 
 
 @st.cache_data
-def backtesting(run_id: int, portfolio_value: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    return backtesting_main(run_id, portfolio_value)
+def backtesting(run_id: int, portfolio_value: int, optimal_weights: np.ndarray) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return backtesting_main(run_id, portfolio_value, optimal_weights)
 
 
 def main():
@@ -272,7 +286,7 @@ def main():
             format="%d",
             min_value=1,
             max_value=trading_days,
-            help="Select the number of days to simulate for Monte Carlo VaR.",
+            help="Select the number of days to simulate VaR for.",
         )
 
     # Get portfolio and optimal weights for selected dates
@@ -284,6 +298,7 @@ def main():
     optimal_weights, optimal_returns, optimal_volatilities = get_optimal_weights(
         connection, run_id
     )
+    efficient_weights, efficient_returns, efficient_volatilities = get_efficient_frontier(connection, run_id)
     tickers = get_ticker_data(connection, run_id)
 
     st.subheader(":chart_with_upwards_trend: Optimal Portfolio Allocation")
@@ -298,12 +313,24 @@ def main():
     st.markdown(
         "Portfolios contain :green[4 to 20 stocks] with a :green[minimum weight of 5%]."
     )
+    
+    st.subheader("Portfolio Picker")
+    st.markdown("By default, the portfolio with the :green[best return] for the :blue[lowest volatility] is selected, which has the :green[highest Sharpe Ratio].")
+    st.markdown("Would you like a portfolio with a :green[higher return] or :blue[lower volatility]?")
+    option = [f"{np.round(efficient_return*trading_days*100,2)}% Return, {np.round(efficient_volatilitiy*np.sqrt(trading_days)*100,2)}% Volatility" for efficient_return, efficient_volatilitiy in zip(efficient_returns, efficient_volatilities)]
+    default_index = np.where(efficient_returns == optimal_returns)[0][0]
+    selected_portfolio = st.selectbox("Select Portfolio", option, index=int(default_index))
+    selected_portfolio_index = option.index(selected_portfolio)
+    selected_portfolio_weights = efficient_weights[selected_portfolio_index]
+    selected_portfolio_returns = efficient_returns[selected_portfolio_index]
+    selected_portfolio_volatility = efficient_volatilities[selected_portfolio_index]
     st.subheader(f"Allocation and Statistics for :blue[{trading_days}] Trading Days")
+    
     left_col, right_col = st.columns((2, 1))
     with left_col:
         # Creating DataFrame to hold the ticker and weights
         ticker_weights_df = pd.DataFrame(
-            {"Ticker": tickers, "Weight (%)": np.round(optimal_weights * 100, 2)}
+            {"Ticker": tickers, "Weight (%)": np.round(selected_portfolio_weights * 100, 2)}
         )
 
         # Remove rows with weights equal to zero
@@ -317,7 +344,7 @@ def main():
             ticker_weights_df["Weight (%)"]
             / 100
             * portfolio_value
-            * (optimal_returns * trading_days)
+            * (selected_portfolio_returns * trading_days)
         )
         ticker_weights_df["Expected Returns ($)"] = ticker_weights_df[
             "Expected Returns ($)"
@@ -329,7 +356,7 @@ def main():
             {
                 "Name": ["Total"],
                 "Ticker": [""],
-                "Weight (%)": [optimal_weights.sum() * 100],
+                "Weight (%)": [selected_portfolio_weights.sum() * 100],
                 "Expected Returns ($)": [expected_return],
             },
             index=["Total"],
@@ -340,23 +367,23 @@ def main():
         # Displaying the DataFrame with Name as the index
         st.dataframe(ticker_weights_df.set_index("Name"), use_container_width=True)
     with right_col:
-        st.write(f"Return: {np.round(optimal_returns*trading_days*100,2)}%")
+        st.write(f"Return: {np.round(selected_portfolio_returns*trading_days*100,2)}%")
         st.write(
-            f"Volatility: {np.round(optimal_volatilities*np.sqrt(trading_days)*100, 2)}%"
+            f"Volatility: {np.round(selected_portfolio_volatility*np.sqrt(trading_days)*100, 2)}%"
         )
-        sharpe_ratio = (optimal_returns * trading_days - risk_free_rate) / (
-            optimal_volatilities * np.sqrt(trading_days)
+        sharpe_ratio = (selected_portfolio_returns * trading_days - risk_free_rate) / (
+            selected_portfolio_volatility * np.sqrt(trading_days)
         )
         st.write(f"Sharpe Ratio: {np.round(sharpe_ratio, 2)}")
     # Scatter plot using portfolio weights
     st.write(
         "Below is the scatter plot of the :blue[Risk Adjusted Returns] of each portfolio generated and the :green[Optimal Portfolio]."
     )
-
+    
     show_portfolios(
-        portfolio_returns, portfolio_volatilities, optimal_returns, optimal_volatilities
+        portfolio_returns, portfolio_volatilities, optimal_returns, optimal_volatilities, efficient_returns, efficient_volatilities
     )
-
+    
     st.subheader("Value At Risk (VaR)")
     st.markdown(
         f"VaR is a measure of the :red[losses] that a portfolio may experience over a :blue[{trading_days}-day] period at given :red[confidence levels]."
@@ -365,8 +392,8 @@ def main():
     summary_data, simulation, portfolios = get_summary_data_and_simulation(
         run_id,
         selected_start_date,
-        selected_end_date,
         portfolio_value,
+        selected_portfolio_weights,
         confidence_levels,
         number_of_days_to_simulate,
     )
@@ -387,7 +414,7 @@ def main():
         "Scenario analysis is a technique used to :red[analyze decisions] through :red[speculation] of various possible outcomes in financial investments."
     )
 
-    scenario_summary_data, affected_sectors_data = backtesting(run_id, portfolio_value)
+    scenario_summary_data, affected_sectors_data = backtesting(run_id, portfolio_value, selected_portfolio_weights)
 
     tab1, tab2 = st.tabs(["Scenario Summary", "Affected Sectors"])
     with tab1:
