@@ -1,15 +1,18 @@
-import streamlit as st
+# Standard Libraries
 import numpy as np
-import plotly.graph_objects as go
 import pandas as pd
 from datetime import datetime
-from postgres import connection
-from datetime import datetime
-import pandas_market_calendars as mcal
-from functions.VAR import main as var_main
-from functions.backtesting import main as backtesting_main
 from typing import List, Tuple
 
+# Third-Party Libraries
+import plotly.graph_objects as go
+import pandas_market_calendars as mcal
+import streamlit as st
+
+# Local Modules
+from postgres import connection
+from functions.VAR import main as var_main
+from functions.backtesting import main as backtesting_main
 from database import (
     get_date_ranges,
     get_portfolio_weights,
@@ -27,7 +30,10 @@ from descriptions import (
     scenario_analysis_info,
 )
 
+# Constants
+DATE_FORMAT = "%Y-%m-%d"
 
+# ----------------- Utility Functions ----------------- #
 def trading_days_between_dates(
     start_date: datetime, end_date: datetime, exchange: str = "XSES"
 ) -> int:
@@ -44,7 +50,34 @@ def get_three_month_yield() -> float:
     three_mnth_yield = float(yield_rates.iloc[5, 2].replace("%", ""))
     return three_mnth_yield
 
+def get_selected_date_range(st: st, date_options: list) -> Tuple[str, str]:
+    length_date_options = len(date_options)
+    selected_date_option = st.selectbox(
+        "Select Date Range:",
+        date_options,
+        index=length_date_options - 1,
+        help="Select the date range to generate the optimal portfolio.",
+    )
+    selected_start_date, selected_end_date = selected_date_option.split(" to ")
+    selected_start_date = selected_start_date.split("From ")[1].strip()
+    selected_end_date = selected_end_date.strip()
+    return selected_start_date, selected_end_date
 
+def get_risk_free_rate(st: st, three_mnth_yield: float) -> float:
+    risk_free_rate = (
+        st.number_input(
+            "Risk Free Rate (%)",
+            value=three_mnth_yield,
+            step=0.1,
+            format="%.3f",
+            min_value=0.0,
+            max_value=10.0,
+            help=risk_free_info,
+        )
+        / 100
+    )
+    return risk_free_rate
+# ----------------- Streamlit Components ----------------- #
 @st.cache_resource
 def show_portfolios(
     portfolio_returns: list = None,
@@ -54,22 +87,11 @@ def show_portfolios(
     efficient_returns: np.ndarray = None,
     efficient_volatilities: np.ndarray = None,
 ) -> None:
-    
-    sharpe_ratios = []
-    progress_container = st.empty()
-    total_weights = len(portfolio_returns)
 
-    for index, (portfolio_return, portfolio_volatility) in enumerate(
-        zip(portfolio_returns, portfolio_volatilities)
-    ):
-        sharpe_ratio = (np.float64(portfolio_return)) / np.float64(portfolio_volatility)
-        sharpe_ratios.append(sharpe_ratio)
-
-        progress_container.progress(
-            (index + 1) / total_weights,
-            text=":hourglass_flowing_sand: Calculating portfolio statistics...",
-        )
-    progress_container.empty()
+    sharpe_ratios = [
+    np.float64(portfolio_return) / np.float64(portfolio_volatility)
+    for portfolio_return, portfolio_volatility in zip(portfolio_returns, portfolio_volatilities)
+    ]
 
     fig = go.Figure()
     fig.add_trace(
@@ -224,39 +246,22 @@ def main():
     date_ranges = get_date_ranges(connection)
     date_options = [f"From {start} to {end}" for start, end in date_ranges]
 
-    # Select date range
     with st.sidebar:
         st.header("Parameters")
-        length_date_options = len(date_options)
-        selected_date_option = st.selectbox(
-            "Select Date Range:",
-            date_options,
-            index=length_date_options - 1,
-            help="Select the date range to generate the optimal portfolio.",
-        )
-        selected_start_date, selected_end_date = selected_date_option.split(" to ")
-        selected_start_date = selected_start_date.split("From ")[1].strip()
-        selected_end_date = selected_end_date.strip()
+        
+        # Get selected date range
+        selected_start_date, selected_end_date = get_selected_date_range(st, date_options)
+        
+        # Get run_id, trading_days and other date related calculations
         run_id = get_run_id(connection, selected_start_date, selected_end_date)
-
-        start_date_obj = datetime.strptime(selected_start_date, "%Y-%m-%d")
-        end_date_obj = datetime.strptime(selected_end_date, "%Y-%m-%d")
+        start_date_obj = datetime.strptime(selected_start_date, DATE_FORMAT)
+        end_date_obj = datetime.strptime(selected_end_date, DATE_FORMAT)
         trading_days = trading_days_between_dates(start_date_obj, end_date_obj)
 
+        # Get risk-free rate
         three_mnth_yield = get_three_month_yield()
-        risk_free_rate = (
-            st.number_input(
-                "Risk Free Rate (%)",
-                value=three_mnth_yield,
-                step=0.1,
-                format="%.3f",
-                min_value=0.0,
-                max_value=10.0,
-                help=risk_free_info,
-            )
-            / 100
-        )
-
+        risk_free_rate = get_risk_free_rate(st, three_mnth_yield)
+        
         portfolio_value = st.number_input(
             "Enter Portfolio Value ($)",
             value=10000.0,
@@ -324,6 +329,7 @@ def main():
     selected_portfolio_weights = efficient_weights[selected_portfolio_index]
     selected_portfolio_returns = efficient_returns[selected_portfolio_index]
     selected_portfolio_volatility = efficient_volatilities[selected_portfolio_index]
+    calculated_return = selected_portfolio_returns * trading_days
     st.subheader(f"Allocation and Statistics for :blue[{trading_days}] Trading Days")
     
     left_col, right_col = st.columns((2, 1))
@@ -344,7 +350,7 @@ def main():
             ticker_weights_df["Weight (%)"]
             / 100
             * portfolio_value
-            * (selected_portfolio_returns * trading_days)
+            * calculated_return
         )
         ticker_weights_df["Expected Returns ($)"] = ticker_weights_df[
             "Expected Returns ($)"
@@ -367,7 +373,7 @@ def main():
         # Displaying the DataFrame with Name as the index
         st.dataframe(ticker_weights_df.set_index("Name"), use_container_width=True)
     with right_col:
-        st.write(f"Return: {np.round(selected_portfolio_returns*trading_days*100,2)}%")
+        st.write(f"Return: {np.round(calculated_return*100,2)}%")
         st.write(
             f"Volatility: {np.round(selected_portfolio_volatility*np.sqrt(trading_days)*100, 2)}%"
         )
