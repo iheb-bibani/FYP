@@ -7,21 +7,22 @@ from typing import Tuple, List
 from demo import show_random_portfolios, show_optimal_portfolio, print_optimal_portfolio, show_efficient_frontier
 import psycopg2
 from postgres import connection
+import cupy as cp
 
-DEBUG = False
+DEBUG = True
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Portfolio analysis.")
     parser.add_argument(
         "--start_date",
         type=str,
-        default="2022-01-01",
+        default="2022-01-03",
         help="Start date in YYYY-MM-DD format",
     )
     parser.add_argument(
         "--end_date",
         type=str,
-        default="2022-12-31",
+        default="2022-12-30",
         help="End date in YYYY-MM-DD format",
     )
 
@@ -96,10 +97,6 @@ def is_valid_date(date_str: str, format: str = "%Y-%m-%d") -> bool:
         return False
 
 
-import psycopg2
-import pandas as pd
-
-
 def download_data(
     start_date: str, end_date: str, connection: psycopg2.extensions.connection
 ) -> pd.DataFrame:
@@ -120,6 +117,10 @@ def download_data(
         data = cursor.fetchall()
         if data:
             dates, closes = zip(*data)
+            if datetime.strptime(start_date, "%Y-%m-%d") != datetime.strptime(dates[0], "%Y-%m-%d")\
+                or datetime.strptime(end_date, "%Y-%m-%d") != datetime.strptime(dates[-1], "%Y-%m-%d"):
+                print(f"Insufficient data for {stock}. Data not retrieved. {dates[0]} to {dates[-1]}")
+                continue
             stock_data[stock] = pd.Series(closes, index=pd.to_datetime(dates))
 
     cursor.close()
@@ -128,22 +129,28 @@ def download_data(
 
 
 def calculate_returns(data: pd.DataFrame) -> pd.DataFrame:
-    log_return = np.log(data / data.shift(1))[1:]  # Daily log returns
-    return log_return
+    column_names = data.columns 
+    shifted_data = cp.array(data.shift(1).values)
+    data_values = cp.array(data.values)
+    log_return = cp.where((data_values > 0) & (shifted_data > 0),
+                          cp.log(data_values / shifted_data),
+                          cp.nan)[1:]  # Remove the first row of NaNs
+    
+    return pd.DataFrame(cp.asnumpy(log_return), columns=column_names)
 
 
-def generate_random_weights(num_stocks: int) -> np.ndarray:
+def generate_random_weights(num_stocks: int) -> cp.ndarray:
     # Randomly select the number of stocks to include between 4 and 20
-    num_selected_stocks = np.random.randint(4, 21)
-
+    num_selected_stocks = cp.random.randint(4, 21)
+    
     # Randomly select the indices of the stocks to include
-    selected_stocks = np.random.choice(num_stocks, num_selected_stocks, replace=False)
-
+    selected_stocks = cp.random.choice(num_stocks, int(num_selected_stocks), replace=False)
+    
     # Create a weight array of zeros
-    weights = np.zeros(num_stocks)
+    weights = cp.zeros(num_stocks, dtype=cp.float32)
 
     # Randomly assign weights above 5% to the selected stocks
-    random_weights = np.random.uniform(0.05, 1, num_selected_stocks)
+    random_weights = cp.random.uniform(0.05, 1, int(num_selected_stocks))
     random_weights /= random_weights.sum()
 
     # Update the weight array with the random weights
@@ -157,34 +164,18 @@ def generate_portfolios(
     returns: pd.DataFrame,
     num_portfolios: int = 10000,
     stocks: List[str] = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    portfolio_means = []
-    portfolio_risks = []
-    portfolio_weights = []
-    sharpe_ratios = []
+) -> Tuple[cp.ndarray, cp.ndarray, cp.ndarray]:
     num_stocks = len(stocks)
-
-    for _ in range(num_portfolios):
-        w = generate_random_weights(num_stocks)
-        portfolio_weights.append(w)
-        mean_return = np.sum(returns.mean() * w)
-        risk = np.sqrt(np.dot(w.T, np.dot(returns.cov(), w)))
-        portfolio_means.append(mean_return)
-        portfolio_risks.append(risk)
-        sharpe_ratios.append(mean_return / risk)
-
-    # Sorting the portfolios by Sharpe ratio
-    sorted_indices = np.argsort(sharpe_ratios)[
-        ::-1
-    ]  # Reverse to sort in descending order
-    # Round all weights to 3dp
-    portfolio_weights = np.array([np.round(weight, 3) for weight in portfolio_weights])[
-        sorted_indices
-    ]
-    portfolio_means = np.array(portfolio_means)[sorted_indices]
-    portfolio_risks = np.array(portfolio_risks)[sorted_indices]
-
-    return portfolio_weights, portfolio_means, portfolio_risks
+    portfolio_weights = cp.array([generate_random_weights(num_stocks) for _ in range(num_portfolios)])
+    mean_return = cp.sum(cp.array(returns.mean().values) * portfolio_weights, axis=1)
+    cov_matrix = cp.array(returns.cov().values)
+    portfolio_risk = cp.sqrt(cp.sum(portfolio_weights @ cov_matrix * portfolio_weights, axis=1))
+    sharpe_ratios = mean_return / portfolio_risk
+    sorted_indices = cp.argsort(sharpe_ratios)[::-1]
+    portfolio_weights = portfolio_weights[sorted_indices]
+    portfolio_means = mean_return[sorted_indices]
+    portfolio_risks = portfolio_risk[sorted_indices]
+    return portfolio_weights.get(), portfolio_means.get(), portfolio_risks.get()
 
 
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility

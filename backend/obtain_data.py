@@ -122,7 +122,65 @@ def add_ta_to_data(connection: psycopg2.extensions.connection) -> dict:
         df = pd.DataFrame(data, columns=columns)
         df[["Open", "High", "Low", "Close", "Adj_Close", "Volume"]] = df[
             ["Open", "High", "Low", "Close", "Adj_Close", "Volume"]
-        ].replace(0, np.nan)
+            ].replace(0, np.nan)
+        
+        """
+        # Momentum Indicators
+        APO - Absolute Price Oscillator
+        KAMA - Kaufman Adaptive Moving Average
+        PPO - Percentage Price Oscillator
+        ROC - Rate of Change
+        RSI - Relative Strength Index
+        STOCHRSI_K, STOCHRSI_D - Stochastic RSI Fast/Slow
+        Stochastic_K, Stochastic_D - Stochastic Fast/Slow
+        Ultimate_Oscillator - Ultimate Oscillator
+        Williams_R - Williams %R
+        DX - Directional Movement Index
+        MINUS_DI - Minus Directional Indicator
+        PLUS_DI - Plus Directional Indicator
+        MINUS_DM - Minus Directional Movement
+        PLUS_DM - Plus Directional Movement
+        
+        # Volume Indicators
+        ADI - Accumulation/Distribution Index
+        OBV - On Balance Volume
+        ADOSC - Chaikin A/D Oscillator
+        OBV - On Balance Volume
+        
+        # Volatility Indicators
+        ATR - Average True Range
+        BBANDS - Bollinger Bands
+        NATR - Normalized Average True Range
+        TRANGE - True Range
+
+        # Trend Indicators
+        ADX - Average Directional Movement Index
+        Aroon_Up, Aroon_Down - Aroon Up/Down
+        CCI - Commodity Channel Index
+        EMA - Exponential Moving Average
+        MACD, MACD_Signal, MACD_Hist - Moving Average Convergence/Divergence
+        PSAR - Parabolic SAR
+        SMA - Simple Moving Average
+        TRIX - 1-day Rate-Of-Change (ROC) of a Triple Smooth EMA
+        WMA - Weighted Moving Average
+        HT_TRENDLINE - Hilbert Transform - Instantaneous Trendline
+        HT_DCPERIOD - Hilbert Transform - Dominant Cycle Period
+        HT_DCPHASE - Hilbert Transform - Dominant Cycle Phase
+        HT_PHASOR_INPHASE, HT_PHASOR_QUADRATURE - Hilbert Transform - Phasor Components
+        HT_SINE_SINE, HT_SINE_LEADSINE - Hilbert Transform - SineWave
+        HT_TRENDMODE - Hilbert Transform - Trend vs Cycle Mode
+        
+        # Other Indicators
+        BETA - Beta
+        CORREL - Pearson's Correlation Coefficient (r)
+        LINEARREG - Linear Regression
+        LINEARREG_ANGLE - Linear Regression Angle
+        LINEARREG_INTERCEPT - Linear Regression Intercept
+        LINEARREG_SLOPE - Linear Regression Slope
+        STDDEV - Standard Deviation
+        TSF - Time Series Forecast
+        VAR - Variance
+        """
 
         # Momentum Indicators
         df["APO"] = talib.APO(df["Adj_Close"])
@@ -138,7 +196,7 @@ def add_ta_to_data(connection: psycopg2.extensions.connection) -> dict:
         df["Williams_R"] = talib.WILLR(df["High"], df["Low"], df["Adj_Close"])
         df["DX"] = talib.DX(df["High"], df["Low"], df["Adj_Close"])
         df["MINUS_DI"] = talib.MINUS_DI(df["High"], df["Low"], df["Adj_Close"])
-        df["PLUS_DI"] = talib.PLUS_DI(df["High"], df["Low"], df["Adj_Close"])q
+        df["PLUS_DI"] = talib.PLUS_DI(df["High"], df["Low"], df["Adj_Close"])
         df["MINUS_DM"] = talib.MINUS_DM(df["High"], df["Low"])
         df["PLUS_DM"] = talib.PLUS_DM(df["High"], df["Low"])
 

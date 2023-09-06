@@ -1,6 +1,5 @@
 import pandas as pd
 import yfinance as yf
-import datetime
 import psycopg2
 from postgres import connection
 
@@ -49,23 +48,21 @@ def filter_stocks(ticker_source: pd.DataFrame) -> pd.DataFrame:
             non_equity.append(idx)
             continue
 
-        if "marketCap" not in data.info or "averageVolume" not in data.info:
-            print(idx, ticker)
+        if "marketCap" not in data.info or "previousClose" not in data.info:
             print(f"{ticker} has insufficient data. Data not retrieved.")
             insufficient_data.append(idx)
             continue
 
         market_cap = data.info["marketCap"]
+        price = data.info["previousClose"]
         avg_volume = data.info["averageVolume"]
-        first_trade_date = datetime.datetime.fromtimestamp(
-            data.info["firstTradeDateEpochUtc"]
-        ).strftime("%Y-%m-%d")
-        if market_cap < 10e6 or avg_volume < 500e3 or first_trade_date > "2010-01-01":
+        if (market_cap < 10e6 and price < 0.2) or avg_volume < 50e3:
             print(
-                f"{ticker} has insufficient market cap or average volume. Data not retrieved."
+                f"{ticker} has insufficient market cap of {market_cap} and ${price} or {avg_volume}. Data not retrieved."
             )
             insufficient_market_cap.append(idx)
         else:
+            print(f"{ticker} has sufficient market cap and average volume.")
             counter += 1
 
     print(f"{counter} tickers have sufficient market cap and average volume.")
