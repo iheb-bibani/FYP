@@ -15,16 +15,16 @@ def reset_tables(connection):
     # Delete all data from the portfolio_weights table
     cursor.execute("DELETE FROM portfolio_weights")
     print("Portfolio weights table has been reset.")
-
+    connection.commit()
     # Delete all data from the optimal_weights table
     cursor.execute("DELETE FROM optimal_weights")
     print("Optimal weights table has been reset.")
-
+    connection.commit()
     cursor.execute("DELETE FROM ticker_run")
     print("Ticker run table has been reset.")
-
-    # Commit the changes and close the connection
     connection.commit()
+    # Commit the changes and close the connection
+    cursor.close()
     connection.close()
 
 

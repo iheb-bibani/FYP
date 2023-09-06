@@ -49,6 +49,27 @@ def get_optimal_weights(
 
 
 @st.cache_data(ttl="30d")
+def get_efficient_frontier(
+    _connection: psycopg2.extensions.connection, run_id: int
+) -> list:
+    cursor = _connection.cursor()
+    cursor.execute(
+        "SELECT weight, returns, volatility FROM efficient_frontier WHERE run_id=%s",
+        (run_id,),
+    )
+    rows = cursor.fetchall()
+    cursor.close()
+    efficient_weights = [list(map(float, row[0].split(","))) for row in rows]
+    portfolio_returns = [float(row[1]) for row in rows]
+    portfolio_volatilities = [float(row[2]) for row in rows]
+    return (
+        np.array(efficient_weights),
+        np.array(portfolio_returns),
+        np.array(portfolio_volatilities),
+    )
+
+
+@st.cache_data(ttl="30d")
 def get_ticker_data(
     _connection: psycopg2.extensions.connection, run_id: int
 ) -> List[str]:

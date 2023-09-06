@@ -1,8 +1,9 @@
 def main_description(length_portfolio_returns: int, length_tickers: int) -> str:
     return f"""
     :blue[{length_portfolio_returns} portfolios] were generated from a universe of :blue[{length_tickers} stocks] available on SGX.\n
-    Below are the :green[optimal allocation and statistics] for the portfolio with the :green[highest Sharpe Ratio].\n
+    Below are the :green[optimal allocation and statistics] for the portfolios with the :green[highest Sharpe Ratios].\n
     The ***higher the Sharpe Ratio***, the ***better the risk-adjusted return*** of the portfolio.\n
+    These portfolios are considered to be the ***most optimal*** portfolios in the universe of stocks, and are part of the ***efficient frontier***.\n
     """
 
 

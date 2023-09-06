@@ -61,3 +61,42 @@ def show_optimal_portfolio(
         label="Optimal Portfolio",
     )
     plt.show()
+
+def show_efficient_frontier(
+    portfolio_returns: np.ndarray,
+    portfolio_volatilities: np.ndarray,
+    random_portfolios_returns: np.ndarray,
+    random_portfolios_volatilities: np.ndarray,
+    ) -> None:
+    
+    plt.figure(figsize=(10, 6))
+    plt.scatter(
+        portfolio_volatilities,
+        portfolio_returns,
+        c=portfolio_returns / portfolio_volatilities,
+        marker="x",
+    )
+    
+    # Add black dashdot line for the efficient frontier
+    sorted_idx = np.argsort(portfolio_volatilities)
+    plt.plot(
+        portfolio_volatilities[sorted_idx],
+        portfolio_returns[sorted_idx],
+        "k-.",
+        linewidth=1,
+        label="Efficient Frontier",
+    )
+    
+    plt.scatter(
+        random_portfolios_volatilities,
+        random_portfolios_returns,
+        c=random_portfolios_returns / random_portfolios_volatilities,
+        marker="o",
+    )
+
+    plt.grid(True)
+    plt.xlabel("Expected Volatility")
+    plt.ylabel("Expected Return")
+    plt.colorbar(label="Sharpe Ratio")
+    plt.legend(loc="upper left")
+    plt.show()

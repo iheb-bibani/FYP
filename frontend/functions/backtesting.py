@@ -4,14 +4,13 @@ import pandas as pd
 from datetime import datetime
 from postgres import connection
 from typing import List, Tuple
-from functions.database import get_optimal_weights, get_ticker_data, filter_tickers
+from functions.database import get_ticker_data, filter_tickers
 
 
-def main(run_id: int, portfolio_value: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def main(run_id: int, portfolio_value: int, optimal_weights: np.ndarray) -> Tuple[pd.DataFrame, pd.DataFrame]:
     financial_crisis = get_financial_crisis(connection)
     if not run_id:
         return
-    optimal_weights = get_optimal_weights(connection, run_id)
     tickers = get_ticker_data(connection, run_id)
     filtered_tickers, filtered_weights = filter_tickers(tickers, optimal_weights)
 
