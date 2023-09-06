@@ -3,13 +3,12 @@ import numpy as np
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import datetime
-from streamlit_extras.switch_page_button import switch_page
-from streamlit_extras.chart_container import chart_container
 from postgres import connection
 from datetime import datetime
 import pandas_market_calendars as mcal
-import matplotlib.pyplot as plt
-from VAR import main as var_main
+from functions.VAR import main as var_main
+from functions.backtesting import main as backtesting_main
+from typing import List, Tuple
 
 from database import (
     get_date_ranges,
@@ -24,6 +23,7 @@ from descriptions import (
     more_info_sharpe_ratio,
     main_description,
     risk_free_info,
+    scenario_analysis_info,
 )
 
 
@@ -97,6 +97,7 @@ def show_portfolios(
     st.plotly_chart(fig, use_container_width=True)
 
 
+@st.cache_resource
 def show_monte_carlo_simulations(
     simulation_data: np.ndarray,
     days: int,
@@ -149,6 +150,53 @@ def show_monte_carlo_simulations(
 
     # Display the plot in Streamlit
     st.plotly_chart(fig, use_container_width=True)
+
+
+@st.cache_data
+def get_summary_data_and_simulation(
+    run_id: int,
+    selected_start_date: str,
+    selected_end_date: str,
+    portfolio_value: int,
+    confidence_levels: List[float],
+    number_of_days_to_simulate: int,
+) -> Tuple[pd.DataFrame, np.ndarray, List[float]]:
+    portfolios_and_simulation = var_main(
+        run_id,
+        selected_start_date,
+        portfolio_value,
+        confidence_levels,
+        number_of_days_to_simulate,
+    )
+    portfolios, simuation = (
+        portfolios_and_simulation[:-1],
+        portfolios_and_simulation[-1],
+    )
+    summary_data = pd.DataFrame()
+    for i, conf in enumerate(confidence_levels):
+        summary_data[f"{conf*100} % VaR"] = [
+            portfolios[0][i],  # Monte Carlo VaR
+            portfolios[1][i],  # 1-year historical VaR
+            portfolios[2][i],  # 2-year historical VaR
+            portfolios[3][i],  # 3-year historical VaR
+            portfolios[4][i],  # Parametric VaR
+        ]
+    summary_data.index = [
+        "Monte Carlo VaR",
+        "1 Year Historical VaR",
+        "2 Year Historical VaR",
+        "3 Year Historical VaR",
+        "Parametric VaR",
+    ]
+    summary_data.index.name = "Methodology"
+    summary_data = summary_data.round(2)
+
+    return summary_data, simuation, portfolios[0]
+
+
+@st.cache_data
+def backtesting(run_id: int, portfolio_value: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    return backtesting_main(run_id, portfolio_value)
 
 
 def main():
@@ -313,48 +361,24 @@ def main():
     st.markdown(
         f"VaR is a measure of the :red[losses] that a portfolio may experience over a :blue[{trading_days}-day] period at given :red[confidence levels]."
     )
-    # view_simulations = st.button("View Monte Carlo Simulations")
-    # if view_simulations:
-    #     switch_page("monte")
-    # parametric_var, historical_var_1yr, historical_var_2yr, historical_var_3yr, monte_carlo_var, simulated_portfolio_val
-    portfolios_and_simulation = var_main(
+
+    summary_data, simulation, portfolios = get_summary_data_and_simulation(
         run_id,
         selected_start_date,
+        selected_end_date,
         portfolio_value,
         confidence_levels,
         number_of_days_to_simulate,
     )
-    portfolios, simuation = (
-        portfolios_and_simulation[:-1],
-        portfolios_and_simulation[-1],
-    )
-    summary_data = pd.DataFrame()
-    for i, conf in enumerate(confidence_levels):
-        summary_data[f"{conf*100} % VaR"] = [
-            portfolios[0][i],  # Monte Carlo VaR
-            portfolios[1][i],  # 1-year historical VaR
-            portfolios[2][i],  # 2-year historical VaR
-            portfolios[3][i],  # 3-year historical VaR
-            portfolios[4][i],  # Parametric VaR
-        ]
-    summary_data.index = [
-        "Monte Carlo VaR",
-        "1 Year Historical VaR",
-        "2 Year Historical VaR",
-        "3 Year Historical VaR",
-        "Parametric VaR",
-    ]
-    summary_data.index.name = "Methodology"
-    summary_data = summary_data.round(2)
     tab1, tab2 = st.tabs(["VAR Summary", "Monte Carlo Simulations"])
     with tab1:
         st.dataframe(summary_data, use_container_width=True)
     with tab2:
         show_monte_carlo_simulations(
-            simuation,
+            simulation,
             number_of_days_to_simulate,
             portfolio_value,
-            portfolios[0],
+            portfolios,
             confidence_levels,
         )
 
@@ -362,7 +386,16 @@ def main():
     st.markdown(
         "Scenario analysis is a technique used to :red[analyze decisions] through :red[speculation] of various possible outcomes in financial investments."
     )
+
+    scenario_summary_data, affected_sectors_data = backtesting(run_id, portfolio_value)
+
     tab1, tab2 = st.tabs(["Scenario Summary", "Affected Sectors"])
+    with tab1:
+        st.dataframe(scenario_summary_data, use_container_width=True)
+    with tab2:
+        st.dataframe(affected_sectors_data, use_container_width=True)
+    with st.expander("Show More Information About Scenario Analysis"):
+        st.markdown(scenario_analysis_info)
 
 
 if __name__ == "__main__":

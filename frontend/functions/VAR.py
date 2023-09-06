@@ -6,11 +6,10 @@ import psycopg2
 from postgres import connection
 from scipy.stats import norm
 import pandas_market_calendars as mcal
-import streamlit as st
+from functions.database import get_optimal_weights, get_ticker_data, filter_tickers
 
 # For 1 to 3 year historic VAR:
 # Use the mean_return, and portfolio_volatility from the weights of the optimal portfolio based on 1, 2, or 3 year historic data.
-st.cache_data()
 
 
 def main(
@@ -89,38 +88,6 @@ def main(
     )
 
 
-def get_optimal_weights(
-    _connection: psycopg2.extensions.connection, run_id: int
-) -> np.ndarray:
-    cursor = _connection.cursor()
-    query = "SELECT weight FROM optimal_weights WHERE run_id=%s"
-    cursor.execute(query, [run_id])
-    row = cursor.fetchone()
-    cursor.close()
-    if row:
-        return np.array(list(map(float, row[0].split(","))))
-    return np.array([])
-
-
-def get_ticker_data(
-    _connection: psycopg2.extensions.connection, run_id: int
-) -> List[str]:
-    cursor = _connection.cursor()
-    query = "SELECT tickers FROM ticker_run WHERE id=%s"
-    cursor.execute(query, [run_id])
-    row = cursor.fetchone()
-    cursor.close()
-    return row[0].split(",") if row else []
-
-
-def filter_tickers(
-    tickers: List[str], weights: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
-    df = pd.DataFrame({"Ticker": tickers, "Weight": weights})
-    df = df[df["Weight"] > 0]
-    return df["Ticker"].to_numpy(), df["Weight"].to_numpy()
-
-
 def download_data(
     tickers: np.ndarray, start_date: str, connection: psycopg2.extensions.connection
 ) -> pd.DataFrame:
@@ -133,10 +100,11 @@ def download_data(
     )  # Download from 3 years ago to the start date
     cursor = connection.cursor()
     stock_data = {}
-    print(tickers)
     for stock in tickers:
         table_name = f"stock_{stock[:3]}"  # Remove the .SI suffix
-        query = f"SELECT Date, Close FROM {table_name} WHERE Date >= %s AND Date <= %s"
+        query = (
+            f"SELECT Date, Adj_Close FROM {table_name} WHERE Date >= %s AND Date <= %s"
+        )
         cursor.execute(query, (start_date, end_date))
         data = cursor.fetchall()
         if data:

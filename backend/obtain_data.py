@@ -41,9 +41,11 @@ def download_and_store_historical_data(
         ticker = ticker_tuple[0]
 
         # Create a new table for each stock if it doesn't exist
-        table_name = f"stock_{ticker[:3]}"  # Remove the .SI suffix
+        table_name = (
+            f"stock_{ticker[:3]}" if ticker != "^STI" else "STI"
+        )  # Remove the .SI suffix
         cursor.execute(
-            f"CREATE TABLE IF NOT EXISTS {table_name} (Date TEXT, Open REAL, High REAL, Low REAL, Close REAL, Volume INTEGER, Dividends REAL, Stock_Splits REAL)"
+            f"CREATE TABLE IF NOT EXISTS {table_name} (Date TEXT, Open REAL, High REAL, Low REAL, Close REAL, Adj_Close REAL, Volume REAL)"
         )
 
         # Get the latest date in the database
@@ -71,8 +73,7 @@ def download_and_store_historical_data(
 
         while True:
             try:
-                stock_data = yf.Ticker(ticker)
-                historical_data = stock_data.history(period="1d", start=start_date)
+                historical_data = yf.download(ticker, start=start_date, interval="1d")
                 break
             except HTTPError:
                 print(f"Rate limit exceeded for {ticker}. Retrying in 60 seconds...")
@@ -86,12 +87,11 @@ def download_and_store_historical_data(
                 row["High"],
                 row["Low"],
                 row["Close"],
+                row["Adj Close"],
                 row["Volume"],
-                row["Dividends"],
-                row["Stock Splits"],
             )
             cursor.execute(
-                f"INSERT INTO {table_name} VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                f"INSERT INTO {table_name} VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 values,
             )
         connection.commit()
@@ -116,76 +116,75 @@ def add_ta_to_data(connection: psycopg2.extensions.connection) -> dict:
             "High",
             "Low",
             "Close",
+            "Adj_Close",
             "Volume",
-            "Dividends",
-            "Stock_Splits",
         ]
         df = pd.DataFrame(data, columns=columns)
-        df[["Open", "High", "Low", "Close", "Volume"]] = df[
-            ["Open", "High", "Low", "Close", "Volume"]
+        df[["Open", "High", "Low", "Close", "Adj_Close", "Volume"]] = df[
+            ["Open", "High", "Low", "Close", "Adj_Close", "Volume"]
         ].replace(0, np.nan)
 
         # Momentum Indicators
-        df["APO"] = talib.APO(df["Close"])
-        df["KAMA"] = talib.KAMA(df["Close"])
-        df["PPO"] = talib.PPO(df["Close"])
-        df["ROC"] = talib.ROC(df["Close"])
-        df["RSI"] = talib.RSI(df["Close"])
-        df["StochRSI_K"], df["StochRSI_D"] = talib.STOCHRSI(df["Close"])
+        df["APO"] = talib.APO(df["Adj_Close"])
+        df["KAMA"] = talib.KAMA(df["Adj_Close"])
+        df["PPO"] = talib.PPO(df["Adj_Close"])
+        df["ROC"] = talib.ROC(df["Adj_Close"])
+        df["RSI"] = talib.RSI(df["Adj_Close"])
+        df["StochRSI_K"], df["StochRSI_D"] = talib.STOCHRSI(df["Adj_Close"])
         df["Stochastic_K"], df["Stochastic_D"] = talib.STOCH(
-            df["High"], df["Low"], df["Close"]
+            df["High"], df["Low"], df["Adj_Close"]
         )
-        df["Ultimate_Oscillator"] = talib.ULTOSC(df["High"], df["Low"], df["Close"])
-        df["Williams_R"] = talib.WILLR(df["High"], df["Low"], df["Close"])
-        df["DX"] = talib.DX(df["High"], df["Low"], df["Close"])
-        df["MINUS_DI"] = talib.MINUS_DI(df["High"], df["Low"], df["Close"])
-        df["PLUS_DI"] = talib.PLUS_DI(df["High"], df["Low"], df["Close"])
+        df["Ultimate_Oscillator"] = talib.ULTOSC(df["High"], df["Low"], df["Adj_Close"])
+        df["Williams_R"] = talib.WILLR(df["High"], df["Low"], df["Adj_Close"])
+        df["DX"] = talib.DX(df["High"], df["Low"], df["Adj_Close"])
+        df["MINUS_DI"] = talib.MINUS_DI(df["High"], df["Low"], df["Adj_Close"])
+        df["PLUS_DI"] = talib.PLUS_DI(df["High"], df["Low"], df["Adj_Close"])q
         df["MINUS_DM"] = talib.MINUS_DM(df["High"], df["Low"])
         df["PLUS_DM"] = talib.PLUS_DM(df["High"], df["Low"])
 
         # Volume Indicators
-        df["ADI"] = talib.AD(df["High"], df["Low"], df["Close"], df["Volume"])
-        df["OBV"] = talib.OBV(df["Close"], df["Volume"])
-        df["ADOSC"] = talib.ADOSC(df["High"], df["Low"], df["Close"], df["Volume"])
-        df["OBV"] = talib.OBV(df["Close"], df["Volume"])
+        df["ADI"] = talib.AD(df["High"], df["Low"], df["Adj_Close"], df["Volume"])
+        df["OBV"] = talib.OBV(df["Adj_Close"], df["Volume"])
+        df["ADOSC"] = talib.ADOSC(df["High"], df["Low"], df["Adj_Close"], df["Volume"])
+        df["OBV"] = talib.OBV(df["Adj_Close"], df["Volume"])
 
         # Volatility Indicators
-        df["ATR"] = talib.ATR(df["High"], df["Low"], df["Close"])
+        df["ATR"] = talib.ATR(df["High"], df["Low"], df["Adj_Close"])
         df["Upper_Band"], df["Middle_Band"], df["Lower_Band"] = talib.BBANDS(
-            df["Close"]
+            df["Adj_Close"]
         )
-        df["NATR"] = talib.NATR(df["High"], df["Low"], df["Close"])
-        df["TRANGE"] = talib.TRANGE(df["High"], df["Low"], df["Close"])
+        df["NATR"] = talib.NATR(df["High"], df["Low"], df["Adj_Close"])
+        df["TRANGE"] = talib.TRANGE(df["High"], df["Low"], df["Adj_Close"])
 
         # Trend Indicators
-        df["ADX"] = talib.ADX(df["High"], df["Low"], df["Close"])
+        df["ADX"] = talib.ADX(df["High"], df["Low"], df["Adj_Close"])
         df["Aroon_Up"], df["Aroon_Down"] = talib.AROON(df["High"], df["Low"])
-        df["CCI"] = talib.CCI(df["High"], df["Low"], df["Close"])
-        df["EMA"] = talib.EMA(df["Close"])
-        df["MACD"], df["MACD_Signal"], df["MACD_Hist"] = talib.MACD(df["Close"])
+        df["CCI"] = talib.CCI(df["High"], df["Low"], df["Adj_Close"])
+        df["EMA"] = talib.EMA(df["Adj_Close"])
+        df["MACD"], df["MACD_Signal"], df["MACD_Hist"] = talib.MACD(df["Adj_Close"])
         df["PSAR"] = talib.SAR(df["High"], df["Low"])
-        df["SMA"] = talib.SMA(df["Close"])
-        df["TRIX"] = talib.TRIX(df["Close"])
-        df["WMA"] = talib.WMA(df["Close"])
-        df["HT_TRENDLINE"] = talib.HT_TRENDLINE(df["Close"])
-        df["HT_DCPERIOD"] = talib.HT_DCPERIOD(df["Close"])
-        df["HT_DCPHASE"] = talib.HT_DCPHASE(df["Close"])
+        df["SMA"] = talib.SMA(df["Adj_Close"])
+        df["TRIX"] = talib.TRIX(df["Adj_Close"])
+        df["WMA"] = talib.WMA(df["Adj_Close"])
+        df["HT_TRENDLINE"] = talib.HT_TRENDLINE(df["Adj_Close"])
+        df["HT_DCPERIOD"] = talib.HT_DCPERIOD(df["Adj_Close"])
+        df["HT_DCPHASE"] = talib.HT_DCPHASE(df["Adj_Close"])
         df["HT_PHASOR_INPHASE"], df["HT_PHASOR_QUADRATURE"] = talib.HT_PHASOR(
-            df["Close"]
+            df["Adj_Close"]
         )
-        df["HT_SINE_SINE"], df["HT_SINE_LEADSINE"] = talib.HT_SINE(df["Close"])
-        df["HT_TRENDMODE"] = talib.HT_TRENDMODE(df["Close"])
+        df["HT_SINE_SINE"], df["HT_SINE_LEADSINE"] = talib.HT_SINE(df["Adj_Close"])
+        df["HT_TRENDMODE"] = talib.HT_TRENDMODE(df["Adj_Close"])
 
         # Other Indicators
         df["BETA"] = talib.BETA(df["High"], df["Low"])
         df["CORREL"] = talib.CORREL(df["High"], df["Low"])
-        df["LINEARREG"] = talib.LINEARREG(df["Close"])
-        df["LINEARREG_ANGLE"] = talib.LINEARREG_ANGLE(df["Close"])
-        df["LINEARREG_INTERCEPT"] = talib.LINEARREG_INTERCEPT(df["Close"])
-        df["LINEARREG_SLOPE"] = talib.LINEARREG_SLOPE(df["Close"])
-        df["STDDEV"] = talib.STDDEV(df["Close"])
-        df["TSF"] = talib.TSF(df["Close"])
-        df["VAR"] = talib.VAR(df["Close"])
+        df["LINEARREG"] = talib.LINEARREG(df["Adj_Close"])
+        df["LINEARREG_ANGLE"] = talib.LINEARREG_ANGLE(df["Adj_Close"])
+        df["LINEARREG_INTERCEPT"] = talib.LINEARREG_INTERCEPT(df["Adj_Close"])
+        df["LINEARREG_SLOPE"] = talib.LINEARREG_SLOPE(df["Adj_Close"])
+        df["STDDEV"] = talib.STDDEV(df["Adj_Close"])
+        df["TSF"] = talib.TSF(df["Adj_Close"])
+        df["VAR"] = talib.VAR(df["Adj_Close"])
 
         stock_data_dict[ticker] = df
 
