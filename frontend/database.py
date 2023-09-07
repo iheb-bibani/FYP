@@ -33,16 +33,16 @@ def get_optimal_weights(
 ) -> list:
     cursor = _connection.cursor()
     cursor.execute(
-        "SELECT weight, returns, volatility FROM optimal_weights WHERE run_id=%s",
+        "SELECT returns, volatility FROM optimal_weights WHERE run_id=%s",
         (run_id,),
     )
     rows = cursor.fetchall()
     cursor.close()
-    optimal_weights = [list(map(float, row[0].split(","))) for row in rows][0]
+    #optimal_weights = [list(map(float, row[0].split(","))) for row in rows][0]
     optimal_returns = [float(row[1]) for row in rows][0]
     optimal_volatilities = [float(row[2]) for row in rows][0]
     return (
-        np.array(optimal_weights),
+       # np.array(optimal_weights),
         np.array(optimal_returns),
         np.array(optimal_volatilities),
     )
@@ -87,7 +87,7 @@ def get_run_id(
 ) -> int:
     cursor = _connection.cursor()
     cursor.execute(
-        "SELECT id FROM ticker_run WHERE start_date=%s AND end_date=%s",
+        "SELECT id FROM ticker_run WHERE start_date=%s AND end_date=%s ORDER BY id DESC LIMIT 1",
         (start_date, end_date),
     )
     run_id = cursor.fetchone()[0]

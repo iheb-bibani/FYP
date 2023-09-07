@@ -300,7 +300,7 @@ def main():
         portfolio_returns,
         portfolio_volatilities,
     ) = get_portfolio_weights(connection, run_id)
-    optimal_weights, optimal_returns, optimal_volatilities = get_optimal_weights(
+    optimal_returns, optimal_volatilities = get_optimal_weights(
         connection, run_id
     )
     efficient_weights, efficient_returns, efficient_volatilities = get_efficient_frontier(connection, run_id)

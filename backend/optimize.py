@@ -57,7 +57,7 @@ def main() -> None:
         store_portfolio_weights(weights, means, risks, run_id, connection)
 
     optimum, expected_return, volatility, sharpe_ratio = optimize_portfolio(
-        weights, log_return, tickers
+        log_return, tickers
     )
     
     if DEBUG:
@@ -71,8 +71,10 @@ def main() -> None:
     
     for target in target_returns:
         print(f"Target return: {target}")
-        values = efficientOpt(weights, log_return, tickers, target)
-        if values == 0: continue
+        values = efficient_portfolios( log_return, tickers, target)
+        if values == 0: 
+            print("No efficient portfolio found for target return. Skipping...")
+            continue
         efficient_list.append(values)
     
     if DEBUG:
@@ -197,36 +199,53 @@ def min_func_sharpe(weights: np.ndarray, returns: pd.DataFrame) -> float:
 
 
 # Finds the optimal portfolio weights that maximizes the Sharpe Ratio
-def optimize_portfolio(
-    weights: np.ndarray, returns: pd.DataFrame, stocks: List[str] = None
-) -> np.ndarray:
+def optimize_portfolio(returns: pd.DataFrame, stocks: List[str] = None) -> np.ndarray:
+    # Step 1: Pre-Optimization
     len_stocks = len(stocks)
-    selected_stocks_count = 0
+    bounds = [(0, 1) for _ in range(len_stocks)]
     constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
-    bounds = tuple((0, 1) for _ in range(len_stocks))
-    optimum_weights = weights[0]
+    
+    init_guess = np.array([1./len_stocks for _ in range(len_stocks)])
 
-    while selected_stocks_count < 4 or selected_stocks_count > 20:
-        print("Optimizing portfolio...")
-        optimum = optimization.minimize(
-            fun=min_func_sharpe,
-            x0=optimum_weights,
-            args=returns,
-            method="SLSQP", # Sequential Least SQuares Programming
-            bounds=bounds,
-            constraints=constraints,
-        )
-        optimum_weights = optimum["x"]
-        optimum_weights[optimum_weights < 0.05] = 0
-        selected_stocks_count = np.sum(optimum_weights > 0)
-
-        total_weights = np.sum(optimum_weights)
-        optimum_weights = np.round(optimum_weights / total_weights, 3)
-
-    total_weights = np.sum(optimum_weights)
-    print(f"Total weights: {total_weights}")
-    mean_return, volatility, sharpe_ratio = statistics(optimum_weights, returns)
-    return optimum_weights, mean_return, volatility, sharpe_ratio
+    pre_optimum = optimization.minimize(
+        fun=min_func_sharpe,
+        x0=init_guess,
+        args=returns,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
+    )
+    
+    pre_optimum_weights = pre_optimum["x"]
+    sorted_indices = np.argsort(-pre_optimum_weights)
+    top_N_indices = sorted_indices[:30]
+    
+    # Step 2: Final Optimization with 5-20 stock constraint
+    reduced_returns = returns.iloc[:, top_N_indices]
+    reduced_weights = pre_optimum_weights[top_N_indices]
+    
+    final_optimum = optimization.minimize(
+        fun=min_func_sharpe,
+        x0=reduced_weights,
+        args=reduced_returns,
+        method="SLSQP",
+        bounds=bounds[:len(top_N_indices)],
+        constraints=constraints,
+    )
+    
+    final_optimum_weights = final_optimum["x"]
+    final_optimum_weights[final_optimum_weights < 0.05] = 0 
+    non_zero_weights = final_optimum_weights > 0
+    
+    # Ensure only 5-20 stocks are selected
+    if np.sum(non_zero_weights) < 5 or np.sum(non_zero_weights) > 20:
+        return None 
+    
+    final_optimum_weights = final_optimum_weights[non_zero_weights]
+    final_optimum_weights = final_optimum_weights / np.sum(final_optimum_weights)
+    mean_return, volatility, sharpe_ratio = statistics(final_optimum_weights, reduced_returns.iloc[:, non_zero_weights])
+    
+    return final_optimum_weights, mean_return, volatility, sharpe_ratio
 
 def min_func_variance(weights: np.ndarray, returns: pd.DataFrame) -> float:
     return statistics(weights, returns)[1]
@@ -234,49 +253,63 @@ def min_func_variance(weights: np.ndarray, returns: pd.DataFrame) -> float:
 def portfolio_return(weights: np.ndarray, returns: pd.DataFrame) -> float:
     return statistics(weights, returns)[0]
 
-def efficientOpt(
-    weights: np.ndarray, 
+def efficient_portfolios(
     returns: pd.DataFrame, 
     stocks: List[str] = None, 
     target_return: float = 0.1
 ) -> np.ndarray:
+    # Step 1: Pre-Optimization
     len_stocks = len(stocks)
-    selected_stocks_count = 0
-    count = 0
-    # Additional constraint for target return
-    constraints = (
+    bounds = [(0, 1) for _ in range(len_stocks)]
+    
+    init_guess = np.array([1./len_stocks for _ in range(len_stocks)])
+
+    pre_optimum = optimization.minimize(
+        fun=min_func_variance,
+        x0=init_guess,
+        args=returns,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=(
         {"type": "eq", "fun": lambda x: portfolio_return(x, returns) - target_return},
         {"type": "eq", "fun": lambda x: np.sum(x) - 1},
+    ),
     )
     
-    bounds = tuple((0, 1) for _ in range(len_stocks))
-    optimum_weights = weights[0]
+    pre_optimum_weights = pre_optimum["x"]
+    sorted_indices = np.argsort(-pre_optimum_weights)
+    top_N_indices = sorted_indices[:30] 
     
-    while selected_stocks_count < 4 or selected_stocks_count > 20:
-        if count > 1: return 0
-        print("Optimizing portfolio for target return...")
-        optimum = optimization.minimize(
-            fun=min_func_variance,
-            x0=optimum_weights,
-            args=returns,
-            method="SLSQP",
-            bounds=bounds,
-            constraints=constraints,
-        )
-        
-        optimum_weights = optimum["x"]
-        optimum_weights[optimum_weights < 0.05] = 0
-        selected_stocks_count = np.sum(optimum_weights > 0)
-
-        total_weights = np.sum(optimum_weights)
-        optimum_weights = np.round(optimum_weights / total_weights, 3)
-        count+=1
-
-    total_weights = np.sum(optimum_weights)
-    print(f"Total weights: {total_weights}")
-    mean_return, volatility, sharpe_ratio = statistics(optimum_weights, returns)
-    return optimum_weights, mean_return, volatility, sharpe_ratio
+    # Step 2: Final Optimization with 5-20 stock constraint
+    reduced_returns = returns.iloc[:, top_N_indices]
+    reduced_weights = pre_optimum_weights[top_N_indices]
     
+    final_optimum = optimization.minimize(
+        fun=min_func_variance,
+        x0=reduced_weights,
+        args=reduced_returns,
+        method="SLSQP",
+        bounds=bounds[:len(top_N_indices)],
+        constraints=(
+        {"type": "eq", "fun": lambda x: portfolio_return(x, reduced_returns) - target_return},
+        {"type": "eq", "fun": lambda x: np.sum(x) - 1},
+    ),
+    )
+    
+    final_optimum_weights = final_optimum["x"]
+    final_optimum_weights[final_optimum_weights < 0.05] = 0
+    non_zero_weights = final_optimum_weights > 0
+    
+    # Ensure only 5-20 stocks are selected
+    if np.sum(non_zero_weights) < 5 or np.sum(non_zero_weights) > 20:
+        return None 
+    
+    final_optimum_weights = final_optimum_weights[non_zero_weights] 
+    final_optimum_weights = final_optimum_weights / np.sum(final_optimum_weights) 
+    
+    mean_return, volatility, sharpe_ratio = statistics(final_optimum_weights, reduced_returns.iloc[:, non_zero_weights])
+    
+    return final_optimum_weights, mean_return, volatility, sharpe_ratio
 
 def store_ticker_run(
     start_date: str,
