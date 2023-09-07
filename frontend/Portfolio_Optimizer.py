@@ -85,13 +85,21 @@ def get_risk_free_rate(st: st, three_mnth_yield: float) -> float:
 # ----------------- Streamlit Components ----------------- #
 @st.cache_resource
 def show_portfolios(
-    portfolio_returns: list = None,
-    portfolio_volatilities: list = None,
-    optimal_returns: list = None,
-    optimal_volatilities: list = None,
+    portfolio_returns: np.ndarray,
+    portfolio_volatilities: np.ndarray,
+    optimal_returns: np.ndarray,
+    optimal_volatilities: np.ndarray,
     efficient_returns: np.ndarray = None,
     efficient_volatilities: np.ndarray = None,
+    trading_days: int = 1,
 ) -> None:
+    portfolio_returns *= trading_days
+    portfolio_volatilities *= np.sqrt(trading_days)
+    optimal_returns *= trading_days
+    optimal_volatilities *= np.sqrt(trading_days)
+    efficient_returns *= trading_days
+    efficient_volatilities *= np.sqrt(trading_days)
+
     sharpe_ratios = [
         np.float64(portfolio_return) / np.float64(portfolio_volatility)
         for portfolio_return, portfolio_volatility in zip(
@@ -427,6 +435,7 @@ def main():
         optimal_volatilities,
         efficient_returns,
         efficient_volatilities,
+        trading_days,
     )
 
     st.subheader("Value At Risk (VaR)")
