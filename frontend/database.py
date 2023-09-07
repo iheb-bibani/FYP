@@ -39,8 +39,8 @@ def get_optimal_weights(
     rows = cursor.fetchall()
     cursor.close()
     #optimal_weights = [list(map(float, row[0].split(","))) for row in rows][0]
-    optimal_returns = [float(row[1]) for row in rows][0]
-    optimal_volatilities = [float(row[2]) for row in rows][0]
+    optimal_returns = [float(row[0]) for row in rows][0]
+    optimal_volatilities = [float(row[1]) for row in rows][0]
     return (
        # np.array(optimal_weights),
         np.array(optimal_returns),
