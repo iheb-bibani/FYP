@@ -6,7 +6,7 @@ import psycopg2
 from postgres import connection
 from scipy.stats import norm
 import pandas_market_calendars as mcal
-from functions.database import  get_ticker_data, filter_tickers
+from functions.database import get_ticker_data, filter_tickers
 
 # For 1 to 3 year historic VAR:
 # Use the mean_return, and portfolio_volatility from the weights of the optimal portfolio based on 1, 2, or 3 year historic data.
@@ -145,7 +145,8 @@ def calculate_parametric_var(
     var_results = []
     for conf in confidence_levels:
         var = portfolio_value * (
-            mean_returns * days_to_simulate - volatilities * np.sqrt(days_to_simulate) * norm.ppf(1 - conf)
+            mean_returns * days_to_simulate
+            - volatilities * np.sqrt(days_to_simulate) * norm.ppf(1 - conf)
         )
         var_results.append(var)
     return var_results
@@ -165,9 +166,9 @@ def calculate_historical_var(
     trading_days = trading_days_between_dates(new_start_date, start_date)
     var_results = []
     portfolio_log_returns = log_returns.tail(trading_days).dot(weights)
-    rolling_window_returns = portfolio_log_returns.rolling(window=days_to_simulate).apply(
-        lambda x: np.prod(1 + x) - 1
-    )
+    rolling_window_returns = portfolio_log_returns.rolling(
+        window=days_to_simulate
+    ).apply(lambda x: np.prod(1 + x) - 1)
 
     for conf in confidence_levels:
         var_value = portfolio_value * np.percentile(

@@ -122,8 +122,8 @@ def add_ta_to_data(connection: psycopg2.extensions.connection) -> dict:
         df = pd.DataFrame(data, columns=columns)
         df[["Open", "High", "Low", "Close", "Adj_Close", "Volume"]] = df[
             ["Open", "High", "Low", "Close", "Adj_Close", "Volume"]
-            ].replace(0, np.nan)
-        
+        ].replace(0, np.nan)
+
         """
         # Momentum Indicators
         APO - Absolute Price Oscillator

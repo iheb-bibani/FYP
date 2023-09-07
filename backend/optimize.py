@@ -4,12 +4,18 @@ import scipy.optimize as optimization
 import argparse
 from datetime import datetime
 from typing import Tuple, List
-from demo import show_random_portfolios, show_optimal_portfolio, print_optimal_portfolio, show_efficient_frontier
+from demo import (
+    show_random_portfolios,
+    show_optimal_portfolio,
+    print_optimal_portfolio,
+    show_efficient_frontier,
+)
 import psycopg2
 from postgres import connection
 import cupy as cp
 
 DEBUG = True
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Portfolio analysis.")
@@ -49,7 +55,7 @@ def main() -> None:
     tickers = data.columns.tolist()
 
     weights, means, risks = generate_portfolios(log_return, stocks=tickers)
-    
+
     if DEBUG:
         show_random_portfolios(means, risks)
     else:
@@ -57,36 +63,42 @@ def main() -> None:
         store_portfolio_weights(weights, means, risks, run_id, connection)
 
     optimum, expected_return, volatility, sharpe_ratio = optimize_portfolio(
-        log_return, tickers
+        weights[0], log_return, tickers
     )
-    
+
     if DEBUG:
         print_optimal_portfolio(optimum, expected_return, volatility, sharpe_ratio)
         show_optimal_portfolio(expected_return, volatility, means, risks)
     else:
         store_optimal_weights(optimum, expected_return, volatility, run_id, connection)
-        
+
     efficient_list = [[optimum, expected_return, volatility, sharpe_ratio]]
-    target_returns = np.linspace(expected_return-0.001, expected_return+0.001, 20)
-    
+    target_returns = np.linspace(expected_return - 0.001, expected_return + 0.001, 20)
+
     for target in target_returns:
         print(f"Target return: {target}")
-        values = efficient_portfolios( log_return, tickers, target)
-        if values == 0: 
+        values = efficient_portfolios(log_return, tickers, target)
+        if values == 0:
             print("No efficient portfolio found for target return. Skipping...")
             continue
         efficient_list.append(values)
-    
+
     if DEBUG:
         show_efficient_frontier(
-            np.array([x[1] for x in efficient_list]), 
-            np.array([x[2] for x in efficient_list]), 
-            means, 
-            risks
+            np.array([x[1] for x in efficient_list]),
+            np.array([x[2] for x in efficient_list]),
+            means,
+            risks,
         )
     else:
-        efficient_list.sort(key=lambda x: x[1]) # Sort by returns
-        store_efficient_frontier([x[0] for x in efficient_list], [x[1] for x in efficient_list], [x[2] for x in efficient_list], run_id, connection)
+        efficient_list.sort(key=lambda x: x[1])  # Sort by returns
+        store_efficient_frontier(
+            [x[0] for x in efficient_list],
+            [x[1] for x in efficient_list],
+            [x[2] for x in efficient_list],
+            run_id,
+            connection,
+        )
         pass
     connection.close()
 
@@ -119,9 +131,14 @@ def download_data(
         data = cursor.fetchall()
         if data:
             dates, closes = zip(*data)
-            if datetime.strptime(start_date, "%Y-%m-%d") != datetime.strptime(dates[0], "%Y-%m-%d")\
-                or datetime.strptime(end_date, "%Y-%m-%d") != datetime.strptime(dates[-1], "%Y-%m-%d"):
-                print(f"Insufficient data for {stock}. Data not retrieved. {dates[0]} to {dates[-1]}")
+            if datetime.strptime(start_date, "%Y-%m-%d") != datetime.strptime(
+                dates[0], "%Y-%m-%d"
+            ) or datetime.strptime(end_date, "%Y-%m-%d") != datetime.strptime(
+                dates[-1], "%Y-%m-%d"
+            ):
+                print(
+                    f"Insufficient data for {stock}. Data not retrieved. {dates[0]} to {dates[-1]}"
+                )
                 continue
             stock_data[stock] = pd.Series(closes, index=pd.to_datetime(dates))
 
@@ -131,23 +148,29 @@ def download_data(
 
 
 def calculate_returns(data: pd.DataFrame) -> pd.DataFrame:
-    column_names = data.columns 
+    column_names = data.columns
     shifted_data = cp.array(data.shift(1).values)
     data_values = cp.array(data.values)
-    log_return = cp.where((data_values > 0) & (shifted_data > 0),
-                          cp.log(data_values / shifted_data),
-                          cp.nan)[1:]  # Remove the first row of NaNs
-    
+    log_return = cp.where(
+        (data_values > 0) & (shifted_data > 0),
+        cp.log(data_values / shifted_data),
+        cp.nan,
+    )[
+        1:
+    ]  # Remove the first row of NaNs
+
     return pd.DataFrame(cp.asnumpy(log_return), columns=column_names)
 
 
 def generate_random_weights(num_stocks: int) -> cp.ndarray:
     # Randomly select the number of stocks to include between 4 and 20
     num_selected_stocks = cp.random.randint(4, 21)
-    
+
     # Randomly select the indices of the stocks to include
-    selected_stocks = cp.random.choice(num_stocks, int(num_selected_stocks), replace=False)
-    
+    selected_stocks = cp.random.choice(
+        num_stocks, int(num_selected_stocks), replace=False
+    )
+
     # Create a weight array of zeros
     weights = cp.zeros(num_stocks, dtype=cp.float32)
 
@@ -168,15 +191,23 @@ def generate_portfolios(
     stocks: List[str] = None,
 ) -> Tuple[cp.ndarray, cp.ndarray, cp.ndarray]:
     num_stocks = len(stocks)
-    portfolio_weights = cp.array([generate_random_weights(num_stocks) for _ in range(num_portfolios)])
+
+    portfolio_weights = cp.array(
+        [generate_random_weights(num_stocks) for _ in range(num_portfolios)]
+    )
     mean_return = cp.sum(cp.array(returns.mean().values) * portfolio_weights, axis=1)
     cov_matrix = cp.array(returns.cov().values)
-    portfolio_risk = cp.sqrt(cp.sum(portfolio_weights @ cov_matrix * portfolio_weights, axis=1))
+
+    portfolio_risk = cp.sqrt(
+        cp.sum(portfolio_weights @ cov_matrix * portfolio_weights, axis=1)
+    )
     sharpe_ratios = mean_return / portfolio_risk
-    sorted_indices = cp.argsort(sharpe_ratios)[::-1]
+    sorted_indices = cp.argsort(sharpe_ratios)[::-1]  # Sort in descending order
+
     portfolio_weights = portfolio_weights[sorted_indices]
     portfolio_means = mean_return[sorted_indices]
     portfolio_risks = portfolio_risk[sorted_indices]
+
     return portfolio_weights.get(), portfolio_means.get(), portfolio_risks.get()
 
 
@@ -199,70 +230,73 @@ def min_func_sharpe(weights: np.ndarray, returns: pd.DataFrame) -> float:
 
 
 # Finds the optimal portfolio weights that maximizes the Sharpe Ratio
-def optimize_portfolio(returns: pd.DataFrame, stocks: List[str] = None) -> np.ndarray:
-    # Step 1: Pre-Optimization
-    len_stocks = len(stocks)
-    bounds = [(0, 1) for _ in range(len_stocks)]
-    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
-    
-    init_guess = np.array([1./len_stocks for _ in range(len_stocks)])
-
-    pre_optimum = optimization.minimize(
-        fun=min_func_sharpe,
-        x0=init_guess,
-        args=returns,
-        method="SLSQP",
-        bounds=bounds,
-        constraints=constraints,
-    )
-    
-    pre_optimum_weights = pre_optimum["x"]
-    sorted_indices = np.argsort(-pre_optimum_weights)
-    top_N_indices = sorted_indices[:30]
-    
-    # Step 2: Final Optimization with 5-20 stock constraint
-    reduced_returns = returns.iloc[:, top_N_indices]
-    reduced_weights = pre_optimum_weights[top_N_indices]
-    
-    final_optimum = optimization.minimize(
-        fun=min_func_sharpe,
-        x0=reduced_weights,
-        args=reduced_returns,
-        method="SLSQP",
-        bounds=bounds[:len(top_N_indices)],
-        constraints=constraints,
-    )
-    
-    final_optimum_weights = final_optimum["x"]
-    final_optimum_weights[final_optimum_weights < 0.05] = 0 
-    non_zero_weights = final_optimum_weights > 0
-    
-    # Ensure only 5-20 stocks are selected
-    if np.sum(non_zero_weights) < 5 or np.sum(non_zero_weights) > 20:
-        return None 
-    
-    final_optimum_weights = final_optimum_weights[non_zero_weights]
-    final_optimum_weights = final_optimum_weights / np.sum(final_optimum_weights)
-    mean_return, volatility, sharpe_ratio = statistics(final_optimum_weights, reduced_returns.iloc[:, non_zero_weights])
-    
-    return final_optimum_weights, mean_return, volatility, sharpe_ratio
-
-def min_func_variance(weights: np.ndarray, returns: pd.DataFrame) -> float:
-    return statistics(weights, returns)[1]
-
-def portfolio_return(weights: np.ndarray, returns: pd.DataFrame) -> float:
-    return statistics(weights, returns)[0]
-
-def efficient_portfolios(
-    returns: pd.DataFrame, 
-    stocks: List[str] = None, 
-    target_return: float = 0.1
+def optimize_portfolio(
+    init_guess: np.ndarray, returns: pd.DataFrame, stocks: List[str] = None
 ) -> np.ndarray:
     # Step 1: Pre-Optimization
     len_stocks = len(stocks)
     bounds = [(0, 1) for _ in range(len_stocks)]
-    
-    init_guess = np.array([1./len_stocks for _ in range(len_stocks)])
+    constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
+
+    pre_optimum = optimization.minimize(
+        fun=min_func_sharpe,
+        x0=init_guess,
+        args=returns,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
+    )
+
+    pre_optimum_weights = pre_optimum["x"]
+    sorted_indices = np.argsort(-pre_optimum_weights)
+    top_N_indices = sorted_indices[:30]
+
+    # Step 2: Final Optimization with 5-20 stock constraint
+    reduced_returns = returns.iloc[:, top_N_indices]
+    reduced_weights = pre_optimum_weights[top_N_indices]
+
+    final_optimum = optimization.minimize(
+        fun=min_func_sharpe,
+        x0=reduced_weights,
+        args=reduced_returns,
+        method="SLSQP",
+        bounds=bounds[: len(top_N_indices)],
+        constraints=constraints,
+    )
+
+    final_optimum_weights = final_optimum["x"]
+    final_optimum_weights[final_optimum_weights < 0.05] = 0
+    non_zero_weights = final_optimum_weights > 0
+
+    # Ensure only 5-20 stocks are selected
+    if np.sum(non_zero_weights) < 5 or np.sum(non_zero_weights) > 20:
+        return None
+
+    final_optimum_weights = final_optimum_weights[non_zero_weights]
+    final_optimum_weights = final_optimum_weights / np.sum(final_optimum_weights)
+    mean_return, volatility, sharpe_ratio = statistics(
+        final_optimum_weights, reduced_returns.iloc[:, non_zero_weights]
+    )
+
+    return final_optimum_weights, mean_return, volatility, sharpe_ratio
+
+
+def min_func_variance(weights: np.ndarray, returns: pd.DataFrame) -> float:
+    return statistics(weights, returns)[1]
+
+
+def portfolio_return(weights: np.ndarray, returns: pd.DataFrame) -> float:
+    return statistics(weights, returns)[0]
+
+
+def efficient_portfolios(
+    returns: pd.DataFrame, stocks: List[str] = None, target_return: float = 0.1
+) -> np.ndarray:
+    # Step 1: Pre-Optimization
+    len_stocks = len(stocks)
+    bounds = [(0, 1) for _ in range(len_stocks)]
+
+    init_guess = np.array([1.0 / len_stocks for _ in range(len_stocks)])
 
     pre_optimum = optimization.minimize(
         fun=min_func_variance,
@@ -271,45 +305,54 @@ def efficient_portfolios(
         method="SLSQP",
         bounds=bounds,
         constraints=(
-        {"type": "eq", "fun": lambda x: portfolio_return(x, returns) - target_return},
-        {"type": "eq", "fun": lambda x: np.sum(x) - 1},
-    ),
+            {
+                "type": "eq",
+                "fun": lambda x: portfolio_return(x, returns) - target_return,
+            },
+            {"type": "eq", "fun": lambda x: np.sum(x) - 1},
+        ),
     )
-    
+
     pre_optimum_weights = pre_optimum["x"]
     sorted_indices = np.argsort(-pre_optimum_weights)
-    top_N_indices = sorted_indices[:30] 
-    
+    top_N_indices = sorted_indices[:30]
+
     # Step 2: Final Optimization with 5-20 stock constraint
     reduced_returns = returns.iloc[:, top_N_indices]
     reduced_weights = pre_optimum_weights[top_N_indices]
-    
+
     final_optimum = optimization.minimize(
         fun=min_func_variance,
         x0=reduced_weights,
         args=reduced_returns,
         method="SLSQP",
-        bounds=bounds[:len(top_N_indices)],
+        bounds=bounds[: len(top_N_indices)],
         constraints=(
-        {"type": "eq", "fun": lambda x: portfolio_return(x, reduced_returns) - target_return},
-        {"type": "eq", "fun": lambda x: np.sum(x) - 1},
-    ),
+            {
+                "type": "eq",
+                "fun": lambda x: portfolio_return(x, reduced_returns) - target_return,
+            },
+            {"type": "eq", "fun": lambda x: np.sum(x) - 1},
+        ),
     )
-    
+
     final_optimum_weights = final_optimum["x"]
     final_optimum_weights[final_optimum_weights < 0.05] = 0
     non_zero_weights = final_optimum_weights > 0
-    
+
     # Ensure only 5-20 stocks are selected
     if np.sum(non_zero_weights) < 5 or np.sum(non_zero_weights) > 20:
-        return None 
-    
-    final_optimum_weights = final_optimum_weights[non_zero_weights] 
-    final_optimum_weights = final_optimum_weights / np.sum(final_optimum_weights) 
-    
-    mean_return, volatility, sharpe_ratio = statistics(final_optimum_weights, reduced_returns.iloc[:, non_zero_weights])
-    
+        return None
+
+    final_optimum_weights = final_optimum_weights[non_zero_weights]
+    final_optimum_weights = final_optimum_weights / np.sum(final_optimum_weights)
+
+    mean_return, volatility, sharpe_ratio = statistics(
+        final_optimum_weights, reduced_returns.iloc[:, non_zero_weights]
+    )
+
     return final_optimum_weights, mean_return, volatility, sharpe_ratio
+
 
 def store_ticker_run(
     start_date: str,
@@ -368,6 +411,7 @@ def store_portfolio_weights(
     connection.commit()
     cursor.close()
 
+
 def store_portfolio_weights(
     portfolio_weights: np.ndarray,
     means: np.ndarray,
@@ -425,6 +469,7 @@ def store_optimal_weights(
     )
     connection.commit()
     cursor.close()
+
 
 def store_efficient_frontier(
     optimum_weights: np.ndarray,

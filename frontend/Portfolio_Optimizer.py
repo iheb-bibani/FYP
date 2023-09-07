@@ -33,6 +33,7 @@ from descriptions import (
 # Constants
 DATE_FORMAT = "%Y-%m-%d"
 
+
 # ----------------- Utility Functions ----------------- #
 def trading_days_between_dates(
     start_date: datetime, end_date: datetime, exchange: str = "XSES"
@@ -50,6 +51,7 @@ def get_three_month_yield() -> float:
     three_mnth_yield = float(yield_rates.iloc[5, 2].replace("%", ""))
     return three_mnth_yield
 
+
 def get_selected_date_range(st: st, date_options: list) -> Tuple[str, str]:
     length_date_options = len(date_options)
     selected_date_option = st.selectbox(
@@ -62,6 +64,7 @@ def get_selected_date_range(st: st, date_options: list) -> Tuple[str, str]:
     selected_start_date = selected_start_date.split("From ")[1].strip()
     selected_end_date = selected_end_date.strip()
     return selected_start_date, selected_end_date
+
 
 def get_risk_free_rate(st: st, three_mnth_yield: float) -> float:
     risk_free_rate = (
@@ -77,6 +80,8 @@ def get_risk_free_rate(st: st, three_mnth_yield: float) -> float:
         / 100
     )
     return risk_free_rate
+
+
 # ----------------- Streamlit Components ----------------- #
 @st.cache_resource
 def show_portfolios(
@@ -87,10 +92,11 @@ def show_portfolios(
     efficient_returns: np.ndarray = None,
     efficient_volatilities: np.ndarray = None,
 ) -> None:
-
     sharpe_ratios = [
-    np.float64(portfolio_return) / np.float64(portfolio_volatility)
-    for portfolio_return, portfolio_volatility in zip(portfolio_returns, portfolio_volatilities)
+        np.float64(portfolio_return) / np.float64(portfolio_volatility)
+        for portfolio_return, portfolio_volatility in zip(
+            portfolio_returns, portfolio_volatilities
+        )
     ]
 
     fig = go.Figure()
@@ -113,7 +119,7 @@ def show_portfolios(
             name="Optimal Portfolio",
         )
     )
-    
+
     fig.add_trace(
         go.Scatter(
             x=efficient_volatilities,
@@ -121,7 +127,8 @@ def show_portfolios(
             mode="lines+markers",
             marker=dict(size=5, color="magenta"),
             name="Efficient Frontier",
-    ))
+        )
+    )
 
     fig.update_layout(
         title="Portfolio Weights Scatter Plot",
@@ -231,7 +238,9 @@ def get_summary_data_and_simulation(
 
 
 @st.cache_data
-def backtesting(run_id: int, portfolio_value: int, optimal_weights: np.ndarray) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def backtesting(
+    run_id: int, portfolio_value: int, optimal_weights: np.ndarray
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     return backtesting_main(run_id, portfolio_value, optimal_weights)
 
 
@@ -248,10 +257,12 @@ def main():
 
     with st.sidebar:
         st.header("Parameters")
-        
+
         # Get selected date range
-        selected_start_date, selected_end_date = get_selected_date_range(st, date_options)
-        
+        selected_start_date, selected_end_date = get_selected_date_range(
+            st, date_options
+        )
+
         # Get run_id, trading_days and other date related calculations
         run_id = get_run_id(connection, selected_start_date, selected_end_date)
         start_date_obj = datetime.strptime(selected_start_date, DATE_FORMAT)
@@ -261,7 +272,7 @@ def main():
         # Get risk-free rate
         three_mnth_yield = get_three_month_yield()
         risk_free_rate = get_risk_free_rate(st, three_mnth_yield)
-        
+
         portfolio_value = st.number_input(
             "Enter Portfolio Value ($)",
             value=10000.0,
@@ -300,10 +311,12 @@ def main():
         portfolio_returns,
         portfolio_volatilities,
     ) = get_portfolio_weights(connection, run_id)
-    optimal_returns, optimal_volatilities = get_optimal_weights(
-        connection, run_id
-    )
-    efficient_weights, efficient_returns, efficient_volatilities = get_efficient_frontier(connection, run_id)
+    optimal_returns, optimal_volatilities = get_optimal_weights(connection, run_id)
+    (
+        efficient_weights,
+        efficient_returns,
+        efficient_volatilities,
+    ) = get_efficient_frontier(connection, run_id)
     tickers = get_ticker_data(connection, run_id)
 
     st.subheader(":chart_with_upwards_trend: Optimal Portfolio Allocation")
@@ -318,25 +331,49 @@ def main():
     st.markdown(
         "Portfolios contain :green[4 to 20 stocks] with a :green[minimum weight of 5%]."
     )
-    
+
     st.subheader("Portfolio Picker")
-    st.markdown("By default, the portfolio with the :green[best return] for the :blue[lowest volatility] is selected, which has the :green[highest Sharpe Ratio].")
-    st.markdown("Would you like a portfolio with a :green[higher return] or :blue[lower volatility]?")
-    option = [f"{np.round(efficient_return*trading_days*100,2)}% Return, {np.round(efficient_volatilitiy*np.sqrt(trading_days)*100,2)}% Volatility" for efficient_return, efficient_volatilitiy in zip(efficient_returns, efficient_volatilities)]
-    default_index = np.where(efficient_returns == optimal_returns)[0][0]
-    selected_portfolio = st.selectbox("Select Portfolio", option, index=int(default_index))
+    st.markdown(
+        "By default, the portfolio with the :green[best return] for the :blue[lowest volatility] is selected, which has the :green[highest Sharpe Ratio]."
+    )
+    st.markdown(
+        "Would you like a portfolio with a :green[higher return] or :blue[lower volatility]?"
+    )
+    option = [
+        f"{np.round(efficient_return*trading_days*100,2)}% Return, {np.round(efficient_volatilitiy*np.sqrt(trading_days)*100,2)}% Volatility"
+        for efficient_return, efficient_volatilitiy in zip(
+            efficient_returns, efficient_volatilities
+        )
+    ]
+
+    sharpe_ratios = np.round(
+        (efficient_returns * trading_days - risk_free_rate)
+        / (efficient_volatilities * np.sqrt(trading_days)),
+        3,
+    )
+    max_sharpe = np.max(sharpe_ratios)
+    max_sharpe_indices = np.where(sharpe_ratios == max_sharpe)[0]
+    default_index = max_sharpe_indices[np.argmax(efficient_returns[max_sharpe_indices])]
+    selected_portfolio = st.selectbox(
+        "Select Portfolio", option, index=int(default_index)
+    )
+
     selected_portfolio_index = option.index(selected_portfolio)
     selected_portfolio_weights = efficient_weights[selected_portfolio_index]
     selected_portfolio_returns = efficient_returns[selected_portfolio_index]
     selected_portfolio_volatility = efficient_volatilities[selected_portfolio_index]
+
     calculated_return = selected_portfolio_returns * trading_days
     st.subheader(f"Allocation and Statistics for :blue[{trading_days}] Trading Days")
-    
+
     left_col, right_col = st.columns((2, 1))
     with left_col:
         # Creating DataFrame to hold the ticker and weights
         ticker_weights_df = pd.DataFrame(
-            {"Ticker": tickers, "Weight (%)": np.round(selected_portfolio_weights * 100, 2)}
+            {
+                "Ticker": tickers,
+                "Weight (%)": np.round(selected_portfolio_weights * 100, 2),
+            }
         )
 
         # Remove rows with weights equal to zero
@@ -347,10 +384,7 @@ def main():
         ticker_weights_df["Name"] = ticker_weights_df["Ticker"].map(ticker_names)
         # Calculating the expected returns based on the weights
         ticker_weights_df["Expected Returns ($)"] = (
-            ticker_weights_df["Weight (%)"]
-            / 100
-            * portfolio_value
-            * calculated_return
+            ticker_weights_df["Weight (%)"] / 100 * portfolio_value * calculated_return
         )
         ticker_weights_df["Expected Returns ($)"] = ticker_weights_df[
             "Expected Returns ($)"
@@ -380,16 +414,21 @@ def main():
         sharpe_ratio = (selected_portfolio_returns * trading_days - risk_free_rate) / (
             selected_portfolio_volatility * np.sqrt(trading_days)
         )
-        st.write(f"Sharpe Ratio: {np.round(sharpe_ratio, 2)}")
+        st.write(f"Sharpe Ratio: {np.round(sharpe_ratio, 3)}")
     # Scatter plot using portfolio weights
     st.write(
         "Below is the scatter plot of the :blue[Risk Adjusted Returns] of each portfolio generated and the :green[Optimal Portfolio]."
     )
-    
+
     show_portfolios(
-        portfolio_returns, portfolio_volatilities, optimal_returns, optimal_volatilities, efficient_returns, efficient_volatilities
+        portfolio_returns,
+        portfolio_volatilities,
+        optimal_returns,
+        optimal_volatilities,
+        efficient_returns,
+        efficient_volatilities,
     )
-    
+
     st.subheader("Value At Risk (VaR)")
     st.markdown(
         f"VaR is a measure of the :red[losses] that a portfolio may experience over a :blue[{trading_days}-day] period at given :red[confidence levels]."
@@ -420,7 +459,9 @@ def main():
         "Scenario analysis is a technique used to :red[analyze decisions] through :red[speculation] of various possible outcomes in financial investments."
     )
 
-    scenario_summary_data, affected_sectors_data = backtesting(run_id, portfolio_value, selected_portfolio_weights)
+    scenario_summary_data, affected_sectors_data = backtesting(
+        run_id, portfolio_value, selected_portfolio_weights
+    )
 
     tab1, tab2 = st.tabs(["Scenario Summary", "Affected Sectors"])
     with tab1:

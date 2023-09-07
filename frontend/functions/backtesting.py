@@ -7,7 +7,9 @@ from typing import List, Tuple
 from functions.database import get_ticker_data, filter_tickers
 
 
-def main(run_id: int, portfolio_value: int, optimal_weights: np.ndarray) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def main(
+    run_id: int, portfolio_value: int, optimal_weights: np.ndarray
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     financial_crisis = get_financial_crisis(connection)
     if not run_id:
         return
