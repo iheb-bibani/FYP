@@ -212,36 +212,34 @@ def generate_portfolios(
 
 
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
-def statistics(weights: np.ndarray, returns: pd.DataFrame) -> np.ndarray:
+def statistics(weights: np.ndarray, returns: pd.DataFrame, lambda_val: float = 0.1) -> np.ndarray:
     portfolio_return = np.sum(returns.mean() * weights)
     portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov(), weights)))
-    return np.array(
-        [
-            portfolio_return,
-            portfolio_volatility,
-            portfolio_return / portfolio_volatility,
-        ]
-    )
+    raw_sharpe_ratio = portfolio_return / portfolio_volatility
+    l1_norm = np.sum(np.abs(weights))
+    regularized_sharpe_ratio = raw_sharpe_ratio - lambda_val * l1_norm
+    return np.array([portfolio_return, portfolio_volatility, regularized_sharpe_ratio])
+
 
 
 # Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
-def min_func_sharpe(weights: np.ndarray, returns: pd.DataFrame) -> float:
-    return -statistics(weights, returns)[2]
+def min_func_sharpe(weights: np.ndarray, returns: pd.DataFrame, lambda_val: float) -> float:
+    return -statistics(weights, returns, lambda_val)[2]
 
 
 # Finds the optimal portfolio weights that maximizes the Sharpe Ratio
 def optimize_portfolio(
-    init_guess: np.ndarray, returns: pd.DataFrame, stocks: List[str] = None
+    init_guess: np.ndarray, returns: pd.DataFrame, stocks: List[str] = None, lambda_val: float = 0.1
 ) -> np.ndarray:
     # Step 1: Pre-Optimization
     len_stocks = len(stocks)
     bounds = [(0, 1) for _ in range(len_stocks)]
     constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
-
+    
     pre_optimum = optimization.minimize(
         fun=min_func_sharpe,
         x0=init_guess,
-        args=returns,
+        args=(returns, lambda_val),
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,
@@ -258,7 +256,7 @@ def optimize_portfolio(
     final_optimum = optimization.minimize(
         fun=min_func_sharpe,
         x0=reduced_weights,
-        args=reduced_returns,
+        args=(reduced_returns, lambda_val),
         method="SLSQP",
         bounds=bounds[: len(top_N_indices)],
         constraints=constraints,
