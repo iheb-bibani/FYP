@@ -22,7 +22,7 @@ def main():
         all_data[stock] = df
         print(df)
     
-    features = ['Open', 'High', 'Low', 'Close',  'Adj_Close' , 'Future_Quarter_Return']
+    features = ['Open', 'High', 'Low', 'Close', 'Adj_Close', 'Future_Quarter_Return']    
     model = stacked_rnn_model_multi(features)
 
     early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
