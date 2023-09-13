@@ -15,7 +15,6 @@ def main(
         return
     tickers = get_ticker_data(connection, run_id)
     filtered_tickers, filtered_weights = filter_tickers(tickers, optimal_weights)
-
     # Create an empty list to store the results
     scenario_summary_data = []
     sector_returns = []
@@ -24,8 +23,8 @@ def main(
         start_date = start_date.strftime("%Y-%m-%d")
         end_date = end_date.strftime("%Y-%m-%d")
 
-        data = download_data(filtered_tickers, start_date, end_date, connection)
-        benchmark = download_data(["^STI"], start_date, end_date, connection)
+        data, filtered_tickers, filtered_weights = download_data(filtered_tickers, start_date, end_date, connection, filtered_weights)
+        benchmark, _, _ = download_data(["^STI"], start_date, end_date, connection)
 
         portfolio_return, benchmark_return, profit_and_loss = calculate_profit_and_loss(
             data, benchmark, filtered_weights
@@ -75,10 +74,12 @@ def download_data(
     start_date: str,
     end_date: str,
     connection: psycopg2.extensions.connection,
+    filtered_weights: np.ndarray = None,
 ) -> pd.DataFrame:
     cursor = connection.cursor()
     stock_data = {}
-
+    filtered_tickers = tickers.copy()
+    
     for stock in tickers:
         table_name = (
             f"stock_{stock[:3]}" if stock != "^STI" else "STI"
@@ -89,10 +90,15 @@ def download_data(
         if data:
             closes = [item[0] for item in data]
             stock_data[stock] = pd.Series(closes)
+        else:
+            print(f"No data for {stock}")
+            filtered_weights = np.delete(filtered_weights, np.where(filtered_tickers == stock))
+            filtered_tickers = np.delete(filtered_tickers, np.where(filtered_tickers == stock))
+            filtered_weights = filtered_weights / np.sum(filtered_weights)
 
     cursor.close()
-
-    return pd.DataFrame(stock_data)
+    
+    return pd.DataFrame(stock_data), filtered_tickers, filtered_weights
 
 
 def calculate_profit_and_loss(

@@ -45,10 +45,11 @@ def trading_days_between_dates(
 
 @st.cache_data(ttl="30d")
 def get_three_month_yield() -> float:
-    yield_rates = pd.read_html(
-        "http://www.worldgovernmentbonds.com/country/singapore/"
-    )[1]
-    three_mnth_yield = float(yield_rates.iloc[5, 2].replace("%", ""))
+    # yield_rates = pd.read_html(
+    #     "http://www.worldgovernmentbonds.com/country/singapore/"
+    # )[1]
+    # three_mnth_yield = float(yield_rates.iloc[5, 2].replace("%", ""))
+    three_mnth_yield = 0.0468
     return three_mnth_yield
 
 
