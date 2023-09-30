@@ -4,6 +4,7 @@ import scipy.optimize as optimization
 import argparse
 from datetime import datetime
 from typing import Tuple, List
+from scipy.stats import jarque_bera
 from demo import (
     show_random_portfolios,
     show_optimal_portfolio,
@@ -52,6 +53,16 @@ def main() -> None:
 
     data = download_data(start_date, end_date, connection)
     log_return = calculate_returns(data)
+    
+    normally_distributed = 0
+    for col in log_return.columns:
+        result = check_normality(log_return[col])
+        if result:
+            normally_distributed += 1
+            print(f"{col} is normally distributed.")
+        
+    print(f"{normally_distributed} out of {len(log_return.columns)} stocks are normally distributed.")
+    
     tickers = data.columns.tolist()
 
     weights, means, risks = generate_portfolios(log_return, stocks=tickers)
@@ -163,131 +174,114 @@ def calculate_returns(data: pd.DataFrame) -> pd.DataFrame:
     )[
         1:
     ]  # Remove the first row of NaNs
-
+    
     return pd.DataFrame(cp.asnumpy(log_return), columns=column_names)
 
+def check_normality(returns) -> bool:
+    statistic, p_value = jarque_bera(returns)
+    if p_value < 0.05:
+        # print("Warning: Data does not appear to be normally distributed.")
+        return False
+    return True
 
-def generate_random_weights(num_stocks: int) -> cp.ndarray:
-    # Randomly select the number of stocks to include between 4 and 20
-    num_selected_stocks = cp.random.randint(4, 21)
+def generate_random_weights(num_stocks: int, existing_portfolios: set) -> cp.ndarray:
+    while True:
+        num_selected_stocks = cp.random.randint(5, 21)
+        selected_stocks = cp.random.choice(num_stocks, int(num_selected_stocks), replace=False)
+        weights = cp.zeros(num_stocks, dtype=cp.float32)
 
-    # Randomly select the indices of the stocks to include
-    selected_stocks = cp.random.choice(
-        num_stocks, int(num_selected_stocks), replace=False
-    )
+        # Randomly assign weights above 5% to the selected stocks
+        random_weights = cp.random.uniform(0.05, 1, int(num_selected_stocks))
+        random_weights /= random_weights.sum()
 
-    # Create a weight array of zeros
-    weights = cp.zeros(num_stocks, dtype=cp.float32)
+        # Update the weights array with the random weights
+        for idx, weight in zip(selected_stocks, random_weights):
+            weights[idx] = weight
 
-    # Randomly assign weights above 5% to the selected stocks
-    random_weights = cp.random.uniform(0.05, 1, int(num_selected_stocks))
-    random_weights /= random_weights.sum()
-
-    # Update the weight array with the random weights
-    for idx, weight in zip(selected_stocks, random_weights):
-        weights[idx] = weight
-
-    return weights
+        # Check uniqueness
+        weight_tuple = tuple(weights.tolist())
+        if weight_tuple not in existing_portfolios:
+            existing_portfolios.add(weight_tuple)
+            return weights
 
 
 def generate_portfolios(
     returns: pd.DataFrame,
-    num_portfolios: int = 10000,
+    num_portfolios: int = 50000,
     stocks: List[str] = None,
 ) -> Tuple[cp.ndarray, cp.ndarray, cp.ndarray]:
     num_stocks = len(stocks)
-
+    existing_portfolios = set()
+    
     portfolio_weights = cp.array(
-        [generate_random_weights(num_stocks) for _ in range(num_portfolios)]
+        [generate_random_weights(num_stocks, existing_portfolios) for _ in range(num_portfolios)]
     )
+    
     mean_return = cp.sum(cp.array(returns.mean().values) * portfolio_weights, axis=1)
-    cov_matrix = cp.array(returns.cov().values)
+    
+    # Calculate downside risk
+    portfolio_return_series = cp.dot(cp.array(returns.values), portfolio_weights.T)
+    target = cp.zeros(portfolio_return_series.shape[1])
+    downside_diff = portfolio_return_series - target[cp.newaxis, :]
+    downside_diff = cp.where(downside_diff < 0, downside_diff, 0)
+    portfolio_downside_risk = cp.sqrt(cp.mean(downside_diff ** 2, axis=0))
 
-    portfolio_risk = cp.sqrt(
-        cp.sum(portfolio_weights @ cov_matrix * portfolio_weights, axis=1)
-    )
-    sharpe_ratios = mean_return / portfolio_risk
-    sorted_indices = cp.argsort(sharpe_ratios)[::-1]  # Sort in descending order
-
+    # Calculate Sortino Ratios
+    sortino_ratios = mean_return / portfolio_downside_risk
+    sorted_indices = cp.argsort(sortino_ratios)[::-1] 
+    
     portfolio_weights = portfolio_weights[sorted_indices]
     portfolio_means = mean_return[sorted_indices]
-    portfolio_risks = portfolio_risk[sorted_indices]
+    portfolio_downside_risks = portfolio_downside_risk[sorted_indices]
 
-    return portfolio_weights.get(), portfolio_means.get(), portfolio_risks.get()
+    return portfolio_weights.get(), portfolio_means.get(), portfolio_downside_risks.get()
 
 
-# Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
-def statistics(
-    weights: np.ndarray, returns: np.ndarray, lambda_val: float = 0.1
-) -> np.ndarray:
+# Sortino Ratio = (Expected Return - Risk Free Rate) / Downside Risk
+def statistics(weights: np.ndarray, returns: np.ndarray, lambda_val: float = 0.1) -> np.ndarray:
     portfolio_return = np.sum(np.mean(returns, axis=0) * weights)
-
-    if isinstance(returns, pd.DataFrame):
-        cov_matrix = returns.cov().values
-    else:  # Assuming it's a NumPy array
-        cov_matrix = np.cov(returns, rowvar=False)
-
-    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-
-    raw_sharpe_ratio = portfolio_return / portfolio_volatility
+    downside_diff = np.dot(returns, weights) - 0
+    downside_diff = downside_diff[downside_diff < 0]
+    downside_risk = np.sqrt(np.mean(np.square(downside_diff)))
+    raw_sortino_ratio = portfolio_return / downside_risk
     l1_norm = np.sum(np.abs(weights))
-    regularized_sharpe_ratio = raw_sharpe_ratio - lambda_val * l1_norm
-    return np.array([portfolio_return, portfolio_volatility, regularized_sharpe_ratio])
+    regularized_sortino_ratio = raw_sortino_ratio - lambda_val * l1_norm
+    return np.array([portfolio_return, downside_risk, regularized_sortino_ratio])
 
 
-# Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
-def min_func_sharpe(
-    weights: np.ndarray, returns: pd.DataFrame, lambda_val: float
-) -> float:
-    sharpe_ratio = statistics(weights, returns, lambda_val)[2]
-
-    # Calculate penalty based on the original weights
+# Minimize the negative Sortino Ratio: Maximize the Sortino Ratio
+def min_func_sortino(weights: np.ndarray, returns: pd.DataFrame, lambda_val: float) -> float:
+    sortino_ratio = statistics(weights, returns, lambda_val)[2]
     adjusted_weights = np.copy(weights)
     adjusted_weights[adjusted_weights < 0.05] = 0
     non_zero_weights = np.sum(adjusted_weights > 0)
-    if non_zero_weights == 0:
-        penalty = 1000
-    else:
-        adjusted_weights = adjusted_weights / np.sum(adjusted_weights)
-        penalty = 1000 if non_zero_weights < 5 or non_zero_weights > 20 else 0
-
-    return -sharpe_ratio + penalty
+    penalty = 1000 if non_zero_weights < 5 or non_zero_weights > 20 else 0
+    return -sortino_ratio + penalty
 
 
-# Finds the optimal portfolio weights that maximizes the Sharpe Ratio
-def optimize_portfolio(
-    modified_returns: np.ndarray, top_n_indices: int , original_len: int, lambda_val: float = 0.1
-) -> np.ndarray:
-    
-    # Optimization
+
+# Finds the optimal portfolio weights that maximize the Sortino Ratio
+def optimize_portfolio(modified_returns: np.ndarray, top_n_indices: int, original_len: int, lambda_val: float = 0.1) -> np.ndarray:
     len_stocks = len(top_n_indices)
     bounds = [(0, 1) for _ in range(len_stocks)]
-
-    # Initialize the weights to be equal
     init_guess = np.ones(len_stocks) / len_stocks
-
     constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
     optimum = optimization.minimize(
-        fun=min_func_sharpe,
+        fun=min_func_sortino,
         x0=init_guess,
         args=(modified_returns, lambda_val),
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,
     )
-
     optimum_weights = optimum["x"]
     optimum_weights[optimum_weights < 0.05] = 0
     optimum_weights = optimum_weights / np.sum(optimum_weights)
-
     non_zero_weights = np.sum(optimum_weights > 0)
-
     if 5 <= non_zero_weights <= 20:
         final_optimum_weights = np.zeros(original_len)
-
         for idx, original_idx in enumerate(top_n_indices):
             final_optimum_weights[original_idx] = optimum_weights[idx]
-
         return final_optimum_weights
     else:
         return 0
@@ -427,37 +421,6 @@ def store_portfolio_weights(
         )
     connection.commit()
     cursor.close()
-
-
-def store_portfolio_weights(
-    portfolio_weights: np.ndarray,
-    means: np.ndarray,
-    risks: np.ndarray,
-    run_id: int,
-    connection: psycopg2.extensions.connection,
-):
-    cursor = connection.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS portfolio_weights (
-            id SERIAL PRIMARY KEY,
-            run_id INTEGER,
-            weight TEXT,
-            returns REAL,
-            volatility REAL,
-            FOREIGN KEY(run_id) REFERENCES ticker_run(id)
-        )
-    """
-    )
-    for weights, mean, risk in zip(portfolio_weights, means, risks):
-        weights_str = ",".join([str(weight) for weight in weights])
-        cursor.execute(
-            "INSERT INTO portfolio_weights (run_id, weight, returns, volatility) VALUES (%s, %s, %s, %s)",
-            (run_id, weights_str, mean, risk),
-        )
-    connection.commit()
-    cursor.close()
-
 
 def store_optimal_weights(
     optimum_weights: np.ndarray,
