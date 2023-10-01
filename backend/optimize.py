@@ -15,7 +15,7 @@ import psycopg2
 from postgres import connection
 import cupy as cp
 
-DEBUG = True
+DEBUG = False
 
 
 def main() -> None:
@@ -73,12 +73,10 @@ def main() -> None:
         run_id = store_ticker_run(start_date, end_date, tickers, connection)
         store_portfolio_weights(weights, means, risks, run_id, connection)
 
-    modified_returns, top_n_indices, original_len = sort_by_sharpe_ratio(log_return, top_n=100)
-    
-    optimum = optimize_portfolio(modified_returns, top_n_indices, original_len, lambda_val=0.1)
-    
-    expected_return, volatility, sharpe_ratio = statistics(optimum, log_return)
-    
+    optimum, expected_return, volatility, sharpe_ratio = optimize_portfolio(
+        log_return, top_n=100
+    )
+
     if DEBUG:
         print_optimal_portfolio(optimum, expected_return, volatility, sharpe_ratio)
         show_optimal_portfolio(expected_return, volatility, means, risks)
@@ -90,13 +88,10 @@ def main() -> None:
 
     for target in target_returns:
         print(f"Target return: {target}")
-        final_optimum_weights = efficient_portfolios(modified_returns, top_n_indices, original_len, target)
-        if final_optimum_weights is None:
+        values = efficient_portfolios(log_return, target_return=target)
+        if values == 0:
             print("No efficient portfolio found.")
             continue
-        else:
-            expected_return, volatility, sharpe_ratio = statistics(final_optimum_weights, log_return)
-            values = (final_optimum_weights, expected_return, volatility, sharpe_ratio)
         efficient_list.append(values)
 
     if DEBUG:
@@ -259,17 +254,33 @@ def min_func_sortino(weights: np.ndarray, returns: pd.DataFrame, lambda_val: flo
     return -sortino_ratio + penalty
 
 
+# Finds the optimal portfolio weights that maximizes the Sharpe Ratio
+def optimize_portfolio(
+    returns: pd.DataFrame, lambda_val: float = 0.1, top_n: int = 100
+) -> np.ndarray:
+    # Step 0: Pre-filter stocks based on Sharpe ratio
+    mean_returns = cp.array(returns.mean())
+    std_dev = cp.array(returns.std())
+    sharpe_ratios = mean_returns / std_dev
+    sorted_indices = cp.argsort(-sharpe_ratios)  # Sort in descending order
+    top_n_indices = sorted_indices[:top_n].tolist()
 
-# Finds the optimal portfolio weights that maximize the Sortino Ratio
-def optimize_portfolio(modified_returns: np.ndarray, top_n_indices: int, original_len: int, lambda_val: float = 0.1) -> np.ndarray:
+    # Reduce the size of returns and initial guess
+    reduced_returns = cp.array(returns.iloc[:, top_n_indices])
+
+    # Convert to numpy for scipy optimization
+    reduced_returns_np = cp.asnumpy(reduced_returns)
+
+    # Optimization
     len_stocks = len(top_n_indices)
     bounds = [(0, 1) for _ in range(len_stocks)]
     init_guess = np.ones(len_stocks) / len_stocks
     constraints = {"type": "eq", "fun": lambda x: np.sum(x) - 1}
+
     optimum = optimization.minimize(
         fun=min_func_sortino,
         x0=init_guess,
-        args=(modified_returns, lambda_val),
+        args=(reduced_returns_np, lambda_val),
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,
@@ -279,12 +290,19 @@ def optimize_portfolio(modified_returns: np.ndarray, top_n_indices: int, origina
     optimum_weights = optimum_weights / np.sum(optimum_weights)
     non_zero_weights = np.sum(optimum_weights > 0)
     if 5 <= non_zero_weights <= 20:
-        final_optimum_weights = np.zeros(original_len)
+        final_optimum_weights = np.zeros(len(returns.columns))
+
         for idx, original_idx in enumerate(top_n_indices):
             final_optimum_weights[original_idx] = optimum_weights[idx]
-        return final_optimum_weights
+
+        mean_return, volatility, sharpe_ratio = statistics(
+            final_optimum_weights, returns
+        )
+
+        return final_optimum_weights, mean_return, volatility, sharpe_ratio
     else:
         return 0
+
 
 def min_func_variance(weights: np.ndarray, returns: pd.DataFrame) -> float:
     variance = statistics(weights, returns)[1]
@@ -307,49 +325,8 @@ def portfolio_return(weights: np.ndarray, returns: pd.DataFrame) -> float:
 
 
 def efficient_portfolios(
-    returns: np.ndarray, top_n_indices: int , original_len: int, target_return: float
+    returns: pd.DataFrame, target_return: float = 0.1, top_n: int = 100
 ) -> np.ndarray:
-    # Optimization
-    len_stocks = len(top_n_indices)
-    bounds = [(0, 1) for _ in range(len_stocks)]
-
-    # Initialize the weights to be equal
-    init_guess = np.ones(len_stocks) / len_stocks
-
-    constraints = [
-        {
-            "type": "eq",
-            "fun": lambda x: portfolio_return(x, returns) - target_return,
-        },
-        {"type": "eq", "fun": lambda x: np.sum(x) - 1},
-    ]
-
-    optimum = optimization.minimize(
-        fun=min_func_variance,
-        x0=init_guess,
-        args=returns,
-        method="SLSQP",
-        bounds=bounds,
-        constraints=constraints,
-    )
-
-    optimum_weights = optimum["x"]
-    optimum_weights[optimum_weights < 0.05] = 0
-    optimum_weights = optimum_weights / np.sum(optimum_weights)
-
-    non_zero_weights = np.sum(optimum_weights > 0)
-
-    if 5 <= non_zero_weights <= 20:
-        final_optimum_weights = np.zeros(original_len)
-
-        for idx, original_idx in enumerate(top_n_indices):
-            final_optimum_weights[original_idx] = optimum_weights[idx]
-
-        return final_optimum_weights
-    else:
-        return None
-
-def sort_by_sharpe_ratio(returns: pd.DataFrame, top_n: int = 100) -> Tuple[np.ndarray, List[int], int]:
     # Step 0: Pre-filter stocks based on Sharpe ratio
     mean_returns = cp.array(returns.mean())
     std_dev = cp.array(returns.std())
@@ -362,7 +339,50 @@ def sort_by_sharpe_ratio(returns: pd.DataFrame, top_n: int = 100) -> Tuple[np.nd
 
     # Convert to numpy for scipy optimization
     reduced_returns_np = cp.asnumpy(reduced_returns)
-    return reduced_returns_np, top_n_indices, len(returns.columns)
+
+    # Optimization
+    len_stocks = len(top_n_indices)
+    bounds = [(0, 1) for _ in range(len_stocks)]
+
+    # Initialize the weights to be equal
+    init_guess = np.ones(len_stocks) / len_stocks
+
+    constraints = [
+        {
+            "type": "eq",
+            "fun": lambda x: portfolio_return(x, reduced_returns_np) - target_return,
+        },
+        {"type": "eq", "fun": lambda x: np.sum(x) - 1},
+    ]
+
+    optimum = optimization.minimize(
+        fun=min_func_variance,
+        x0=init_guess,
+        args=reduced_returns_np,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
+    )
+
+    optimum_weights = optimum["x"]
+    optimum_weights[optimum_weights < 0.05] = 0
+    optimum_weights = optimum_weights / np.sum(optimum_weights)
+
+    non_zero_weights = np.sum(optimum_weights > 0)
+
+    if 5 <= non_zero_weights <= 20:
+        final_optimum_weights = np.zeros(len(returns.columns))
+
+        for idx, original_idx in enumerate(top_n_indices):
+            final_optimum_weights[original_idx] = optimum_weights[idx]
+
+        mean_return, volatility, sharpe_ratio = statistics(
+            final_optimum_weights, returns
+        )
+
+        return final_optimum_weights, mean_return, volatility, sharpe_ratio
+    else:
+        return 0
 
 
 def store_ticker_run(
