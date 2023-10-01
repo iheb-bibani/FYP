@@ -1,32 +1,32 @@
-from postgres import connection
+from dotenv import load_dotenv
+import os
+import asyncio
+from postgres import create_pool
+
+load_dotenv()
 
 
-def reset_tables(connection):
-    cursor = connection.cursor()
+async def reset_tables(pool):
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            await connection.execute("DROP TABLE IF EXISTS portfolio_weights")
+            print("Portfolio weights table has been reset.")
 
-    # tickers = cursor.execute("SELECT ticker FROM equities").fetchall()
+            await connection.execute("DROP TABLE IF EXISTS optimal_weights")
+            print("Optimal weights table has been reset.")
 
-    # Delete all data from the portfolio_weights table
-    # for table_name in tickers:
-    #     table_name = table_name[0]
-    #     table_name = f"stock_{table_name[:3]}"
-    #     cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+            await connection.execute("DROP TABLE IF EXISTS efficient_frontier")
+            print("Efficient frontier table has been reset.")
 
-    # Delete all data from the portfolio_weights table
-    cursor.execute("DELETE FROM portfolio_weights WHERE run_id > 1")
-    print("Portfolio weights table has been reset.")
-    connection.commit()
-    # Delete all data from the optimal_weights table
-    cursor.execute("DELETE FROM optimal_weights WHERE run_id > 1")
-    print("Optimal weights table has been reset.")
-    connection.commit()
-    cursor.execute("DELETE FROM ticker_run WHERE id > 1")
-    print("Ticker run table has been reset.")
-    connection.commit()
-    # Commit the changes and close the connection
-    cursor.close()
-    connection.close()
+            await connection.execute("DROP TABLE IF EXISTS ticker_run")
+            print("Ticker run table has been reset.")
+
+
+async def main():
+    pool = await create_pool()
+    await reset_tables(pool)
+    await pool.close()
 
 
 if __name__ == "__main__":
-    reset_tables(connection)
+    asyncio.run(main())

@@ -14,49 +14,55 @@ def show_statistics(returns: pd.DataFrame, num_trading_days: int = 252) -> None:
     print(f"Expected correlation:\n{returns.corr()}")
 
 
-def show_random_portfolios(returns: pd.DataFrame, volatilities: np.ndarray, num_days: int = 252) -> None:
+def show_random_portfolios(returns: pd.DataFrame, volatilities: np.ndarray) -> None:
     plt.figure(figsize=(10, 6))
-    plt.scatter(volatilities * np.sqrt(num_days), returns * num_days, c=returns / volatilities, marker="o")
+    plt.scatter(volatilities, returns, c=returns / volatilities, marker="o")
     plt.grid(True)
-    plt.xlabel("Expected Downside Risk")
+    plt.xlabel("Expected Volatility")
     plt.ylabel("Expected Return")
-    plt.colorbar(label="Sortino Ratio")
+    plt.colorbar(label="Sharpe Ratio")
     plt.show()
 
 
 def print_optimal_portfolio(
-    optimum: np.ndarray, expected_return: float, downside: float, sortino_ratio: float, num_days: int = 252
+    optimum: np.ndarray,
+    expected_return: float,
+    volatility: float,
+    sharpe_ratio: float,
+    num_trading_days: int = 252,
 ) -> None:
     print(f"Optimal weights: {optimum}")
-    print(f"Expected annual return: {expected_return * num_days}")
-    print(f"Annualized downside risk: {downside * np.sqrt(num_days)}")
-    print(f"Sortino Ratio: {sortino_ratio}")
-    print(f"Avg daily return: {expected_return}")
+    print(f"Expected return: {expected_return}")
+    print(f"Volatility: {volatility}")
+    print(f"Sharpe Ratio: {expected_return/volatility}")
+    print(f"Sharpe Ratio: {sharpe_ratio}")
+    print(f"Expected annual return: {expected_return*num_trading_days}")
+    print(f"Annual volatility: {volatility*np.sqrt(num_trading_days)}")
+    print(f"Annual Sharpe Ratio: {sharpe_ratio*np.sqrt(num_trading_days)}")
 
 
 def show_optimal_portfolio(
     expected_return: float,
-    downside: float,
+    volatility: float,
     portfolio_returns: np.ndarray,
     portfolio_volatilities: np.ndarray,
-    num_days: int = 252,
 ) -> None:
     plt.figure(figsize=(10, 6))
     plt.scatter(
-        portfolio_volatilities * np.sqrt(num_days),
-        portfolio_returns * num_days,
+        portfolio_volatilities,
+        portfolio_returns,
         c=portfolio_returns / portfolio_volatilities,
         marker="o",
     )
     plt.grid(True)
-    plt.xlabel("Expected Downside Risk")
+    plt.xlabel("Expected Volatility")
     plt.ylabel("Expected Return")
-    plt.colorbar(label="Sortino Ratio")
+    plt.colorbar(label="Sharpe Ratio")
 
     # Add red star to optimal portfolio
     plt.scatter(
-        downside * np.sqrt(num_days),
-        expected_return * num_days,
+        volatility,
+        expected_return,
         marker="*",
         color="r",
         s=500,
@@ -70,12 +76,11 @@ def show_efficient_frontier(
     portfolio_volatilities: np.ndarray,
     random_portfolios_returns: np.ndarray,
     random_portfolios_volatilities: np.ndarray,
-    num_days: int = 252,
 ) -> None:
     plt.figure(figsize=(10, 6))
     plt.scatter(
-        portfolio_volatilities * np.sqrt(num_days),
-        portfolio_returns * num_days,
+        portfolio_volatilities,
+        portfolio_returns,
         c=portfolio_returns / portfolio_volatilities,
         marker="x",
     )
@@ -83,23 +88,23 @@ def show_efficient_frontier(
     # Add black dashdot line for the efficient frontier
     sorted_idx = np.argsort(portfolio_volatilities)
     plt.plot(
-        portfolio_volatilities[sorted_idx] * np.sqrt(num_days),
-        portfolio_returns[sorted_idx] * num_days,
+        portfolio_volatilities[sorted_idx],
+        portfolio_returns[sorted_idx],
         "k-.",
         linewidth=1,
         label="Efficient Frontier",
     )
 
     plt.scatter(
-        random_portfolios_volatilities * np.sqrt(num_days),
-        random_portfolios_returns * num_days,
+        random_portfolios_volatilities,
+        random_portfolios_returns,
         c=random_portfolios_returns / random_portfolios_volatilities,
         marker="o",
     )
 
     plt.grid(True)
-    plt.xlabel("Expected Downside Risk")
+    plt.xlabel("Expected Volatility")
     plt.ylabel("Expected Return")
-    plt.colorbar(label="Sortino Ratio")
+    plt.colorbar(label="Sharpe Ratio")
     plt.legend(loc="upper left")
     plt.show()
