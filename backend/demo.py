@@ -81,10 +81,9 @@ def show_efficient_frontier(
     )
 
     # Add black dashdot line for the efficient frontier
-    sorted_idx = np.argsort(portfolio_volatilities)
     plt.plot(
-        portfolio_volatilities[sorted_idx],
-        portfolio_returns[sorted_idx],
+        portfolio_volatilities,
+        portfolio_returns,
         "k-.",
         linewidth=1,
         label="Efficient Frontier",

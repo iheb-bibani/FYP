@@ -15,7 +15,7 @@ import asyncio
 from postgres import create_pool
 from scipy.stats import normaltest
 
-DEBUG = True
+DEBUG = False
 
 
 async def main() -> None:
@@ -124,7 +124,7 @@ async def main() -> None:
                 )
             efficient_list = [[optimum, expected_return, volatility, sharpe_ratio]]
             target_returns = np.linspace(
-                expected_return - 0.1, expected_return + 0.1, 20
+                expected_return - 0.2, expected_return + 0.2, 20
             )
 
             for target in target_returns:
@@ -147,6 +147,8 @@ async def main() -> None:
                     )
                 efficient_list.append(values)
 
+            efficient_list.sort(key=lambda x: x[1])
+                
             if DEBUG:
                 show_efficient_frontier(
                     np.array([x[1] for x in efficient_list]),
@@ -264,15 +266,22 @@ def generate_random_weights(num_stocks: int) -> np.ndarray:
 
 def generate_portfolios(
     returns: pd.DataFrame,
-    num_portfolios: int = 10000,
+    num_portfolios: int = 50000,
     stocks: List[str] = None,
     num_trading_days: int = 252,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     num_stocks = len(stocks)
+    unique_portfolios = set()
+    portfolio_weights = []
 
-    portfolio_weights = np.array(
-        [generate_random_weights(num_stocks) for _ in range(num_portfolios)]
-    )
+    while len(portfolio_weights) < num_portfolios:
+        weights = generate_random_weights(num_stocks)
+        weights_tuple = tuple(weights)
+        if weights_tuple not in unique_portfolios:
+            unique_portfolios.add(weights_tuple)
+            portfolio_weights.append(weights_tuple)
+            
+    portfolio_weights = np.array(portfolio_weights)
 
     mean_return = np.sum(np.array(returns.mean().values) * portfolio_weights, axis=1) * num_trading_days
 
