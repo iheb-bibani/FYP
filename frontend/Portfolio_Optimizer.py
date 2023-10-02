@@ -369,7 +369,7 @@ def main():
     calculated_return = selected_portfolio_returns
     st.subheader(f"Allocation and Statistics for :blue[{trading_days}] Trading Days")
 
-    left_col, right_col = st.columns((2, 1))
+    left_col, right_col = st.columns((1, 1))
     with left_col:
         # Creating DataFrame to hold the ticker and weights
         ticker_weights_df = pd.DataFrame(
@@ -385,22 +385,12 @@ def main():
         # Fetching the names corresponding to the tickers
         ticker_names = get_ticker_names(connection)
         ticker_weights_df["Name"] = ticker_weights_df["Ticker"].map(ticker_names)
-        # Calculating the expected returns based on the weights
-        ticker_weights_df["Expected Returns ($)"] = (
-            ticker_weights_df["Weight (%)"] / 100 * portfolio_value * calculated_return
-        )
-        ticker_weights_df["Expected Returns ($)"] = ticker_weights_df[
-            "Expected Returns ($)"
-        ].map(lambda x: np.round(x, 2))
-        expected_return = ticker_weights_df["Expected Returns ($)"].sum()
-
         # Appending the total weight
         total_weight_row = pd.DataFrame(
             {
                 "Name": ["Total"],
                 "Ticker": [""],
                 "Weight (%)": [np.round(selected_portfolio_weights.sum() * 100)],
-                "Expected Returns ($)": [expected_return],
             },
             index=["Total"],
         )
@@ -412,14 +402,16 @@ def main():
     with right_col:
         st.write(f"Expected Return: {np.round(np.exp(calculated_return)-1,2)*100}%")
         st.write(f"Log Return: {np.round(calculated_return*100,2)}%")
-        st.write(
-            f"Volatility: {np.round(selected_portfolio_volatility*100, 2)}%"
-        )
-        sharpe_ratio = (selected_portfolio_returns - risk_free_rate) / (
-            selected_portfolio_volatility
-        )
+        st.write(f"Volatility: {np.round(selected_portfolio_volatility*100, 2)}%")
+        sharpe_ratio = (selected_portfolio_returns - risk_free_rate) / (selected_portfolio_volatility)
         st.write(f"Sharpe Ratio: {np.round(sharpe_ratio, 3)}")
-    # Scatter plot using portfolio weights
+        sortino_ratio = (selected_portfolio_returns - risk_free_rate) / (np.std(portfolio_returns[portfolio_returns < 0]))
+        st.write(f"Sortino Ratio: {np.round(sortino_ratio, 3)}")
+        # treynor_ratio = (selected_portfolio_returns - risk_free_rate) / (beta)
+        # st.write(f"Treynor Ratio: {np.round(treynor_ratio, 3)}")
+        # information_ratio = (selected_portfolio_returns - benchmark_returns.mean()) / (np.std(portfolio_returns - benchmark_returns))
+        # st.write(f"Information Ratio: {np.round(information_ratio, 3)}")
+    
     st.write(
         "Below is the scatter plot of the :blue[Risk Adjusted Returns] of each portfolio generated and the :green[Optimal Portfolio]."
     )
