@@ -28,17 +28,12 @@ def print_optimal_portfolio(
     optimum: np.ndarray,
     expected_return: float,
     volatility: float,
-    sharpe_ratio: float,
-    num_trading_days: int = 252,
+    sharpe_ratio: float
 ) -> None:
     print(f"Optimal weights: {optimum}")
     print(f"Expected return: {expected_return}")
     print(f"Volatility: {volatility}")
-    print(f"Sharpe Ratio: {expected_return/volatility}")
     print(f"Sharpe Ratio: {sharpe_ratio}")
-    print(f"Expected annual return: {expected_return*num_trading_days}")
-    print(f"Annual volatility: {volatility*np.sqrt(num_trading_days)}")
-    print(f"Annual Sharpe Ratio: {sharpe_ratio*np.sqrt(num_trading_days)}")
 
 
 def show_optimal_portfolio(

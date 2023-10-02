@@ -15,7 +15,7 @@ import asyncio
 from postgres import create_pool
 from scipy.stats import normaltest
 
-DEBUG = False
+DEBUG = True
 
 
 async def main() -> None:
@@ -78,20 +78,34 @@ async def main() -> None:
             )
 
             optimum = optimize_portfolio(
-                modified_returns, top_n_indices, original_len, lambda_val=0.1
+                modified_returns, top_n_indices, original_len, lambda_val=0.1, num_trading_days=trading_days
             )
 
             expected_return, volatility, sharpe_ratio = statistics(
-                optimum, log_return, lambda_val=0
+                optimum, log_return, lambda_val=0, num_trading_days=trading_days
             )
-
-            optimum_tickers = [
-                tickers[idx] for idx in top_n_indices if optimum[idx] > 0
-            ]
-            optimum_tickers_to_weights = dict(
-                zip(optimum_tickers, optimum[optimum > 0])
-            )
-            print(f"Optimal portfolio: {optimum_tickers_to_weights}")
+            
+            backtesting_abs_return = 0
+            optimum_tickers_to_weights = {}
+            for idx in top_n_indices:
+                if optimum[idx] > 0:
+                    print(f"{idx}: {tickers[idx]}: {optimum[idx]}")
+                    ticker = tickers[idx]
+                    weight = optimum[idx]
+                    optimum_tickers_to_weights[ticker] = weight
+                    start_price = data[tickers[idx]][0]
+                    end_price = data[tickers[idx]][-1]
+                    backtesting_abs_return += (end_price - start_price)/start_price * optimum[idx]
+                    
+                    
+            backtesting_log_return = np.log(1 + backtesting_abs_return)
+            expected_absolute_return = np.exp(expected_return) - 1
+            print(f"Backtesting absolute return: {backtesting_abs_return}")
+            print(f"Backtesting log return: {backtesting_log_return}")
+            print(f"Expected absolute return: {expected_absolute_return}")
+            print(f"Expected log return: {expected_return}")
+        
+            
             if DEBUG:
                 print_optimal_portfolio(
                     optimum, expected_return, volatility, sharpe_ratio
@@ -110,13 +124,13 @@ async def main() -> None:
                 )
             efficient_list = [[optimum, expected_return, volatility, sharpe_ratio]]
             target_returns = np.linspace(
-                expected_return - 0.001, expected_return + 0.001, 20
+                expected_return - 0.1, expected_return + 0.1, 20
             )
 
             for target in target_returns:
                 print(f"Target return: {target}")
                 final_optimum_weights = efficient_portfolios(
-                    modified_returns, top_n_indices, original_len, target
+                    modified_returns, top_n_indices, original_len, target,  num_trading_days=trading_days
                 )
                 if final_optimum_weights is None:
                     print("No efficient portfolio found.")
@@ -241,7 +255,7 @@ def generate_random_weights(num_stocks: int) -> np.ndarray:
     )
     weights = np.zeros(num_stocks, dtype=np.float32)
     random_weights = np.random.uniform(0.05, 1, int(num_selected_stocks))
-    random_weights /= random_weights.sum()
+    random_weights = np.round(random_weights/np.sum(random_weights), 4)
     for idx, weight in zip(selected_stocks, random_weights):
         weights[idx] = weight
 
@@ -252,19 +266,24 @@ def generate_portfolios(
     returns: pd.DataFrame,
     num_portfolios: int = 10000,
     stocks: List[str] = None,
+    num_trading_days: int = 252,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     num_stocks = len(stocks)
 
     portfolio_weights = np.array(
         [generate_random_weights(num_stocks) for _ in range(num_portfolios)]
     )
-    mean_return = np.sum(np.array(returns.mean().values) * portfolio_weights, axis=1)
-    cov_matrix = np.array(returns.cov().values)
+
+    mean_return = np.sum(np.array(returns.mean().values) * portfolio_weights, axis=1) * num_trading_days
+
+    cov_matrix = returns.cov().values
 
     portfolio_risk = np.sqrt(
         np.sum(portfolio_weights @ cov_matrix * portfolio_weights, axis=1)
-    )
+    ) * np.sqrt(num_trading_days)
+
     sharpe_ratios = mean_return / portfolio_risk
+
     sorted_indices = np.argsort(sharpe_ratios)[::-1]  # Sort in descending order
 
     portfolio_weights = portfolio_weights[sorted_indices]
@@ -273,19 +292,23 @@ def generate_portfolios(
 
     return portfolio_weights, portfolio_means, portfolio_risks
 
-
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
 def statistics(
-    weights: np.ndarray, returns: np.ndarray, lambda_val: float = 0.1
+    weights: np.ndarray, returns: np.ndarray, lambda_val: float = 0.1, num_trading_days: int = 252
 ) -> np.ndarray:
-    portfolio_return = np.sum(np.mean(returns, axis=0) * weights)
-
+    
+    mean_log_returns = np.mean(returns, axis=0)
+    mean_abs_returns = np.exp(mean_log_returns) - 1
+    total_mean_abs_return = np.sum(mean_abs_returns * weights)
+    total_mean_log_return = np.log(1 + total_mean_abs_return)
+    portfolio_return = total_mean_log_return * num_trading_days
+    
     if isinstance(returns, pd.DataFrame):
         cov_matrix = returns.cov().values
     else:  # Assuming it's a NumPy array
         cov_matrix = np.cov(returns, rowvar=False)
 
-    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))) * np.sqrt(num_trading_days)
 
     raw_sharpe_ratio = portfolio_return / portfolio_volatility
     if lambda_val != 0:
@@ -297,11 +320,12 @@ def statistics(
     return np.array([portfolio_return, portfolio_volatility, regularized_sharpe_ratio])
 
 
+
 # Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
 def min_func_sharpe(
-    weights: np.ndarray, returns: pd.DataFrame, lambda_val: float
+    weights: np.ndarray, returns: pd.DataFrame, lambda_val: float, num_trading_days: int = 252
 ) -> float:
-    sharpe_ratio = statistics(weights, returns, lambda_val)[2]
+    sharpe_ratio = statistics(weights, returns, lambda_val, num_trading_days)[2]
 
     # Calculate penalty based on the original weights
     adjusted_weights = np.copy(weights)
@@ -322,6 +346,7 @@ def optimize_portfolio(
     top_n_indices: int,
     original_len: int,
     lambda_val: float = 0.1,
+    num_trading_days: int = 252,
 ) -> np.ndarray:
     # Optimization
     len_stocks = len(top_n_indices)
@@ -334,7 +359,7 @@ def optimize_portfolio(
     optimum = optimization.minimize(
         fun=min_func_sharpe,
         x0=init_guess,
-        args=(modified_returns, lambda_val),
+        args=(modified_returns, lambda_val, num_trading_days),
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,
@@ -342,8 +367,7 @@ def optimize_portfolio(
 
     optimum_weights = optimum["x"]
     optimum_weights[optimum_weights < 0.05] = 0
-    optimum_weights = optimum_weights / np.sum(optimum_weights)
-
+    optimum_weights = np.round(optimum_weights / np.sum(optimum_weights), 4)
     non_zero_weights = np.sum(optimum_weights > 0)
 
     if 5 <= non_zero_weights <= 20:
@@ -357,8 +381,8 @@ def optimize_portfolio(
         return 0
 
 
-def min_func_variance(weights: np.ndarray, returns: pd.DataFrame) -> float:
-    variance = statistics(weights, returns)[1]
+def min_func_variance(weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252) -> float:
+    variance = statistics(weights, returns, num_trading_days=num_trading_days)[1]
 
     # Calculate penalty based on the original weights
     adjusted_weights = np.copy(weights)
@@ -373,12 +397,12 @@ def min_func_variance(weights: np.ndarray, returns: pd.DataFrame) -> float:
     return variance + penalty
 
 
-def portfolio_return(weights: np.ndarray, returns: pd.DataFrame) -> float:
-    return statistics(weights, returns)[0]
+def portfolio_return(weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252) -> float:
+    return statistics(weights, returns, num_trading_days=num_trading_days)[0]
 
 
 def efficient_portfolios(
-    returns: np.ndarray, top_n_indices: int, original_len: int, target_return: float
+    returns: np.ndarray, top_n_indices: int, original_len: int, target_return: float, num_trading_days: int = 252
 ) -> np.ndarray:
     # Optimization
     len_stocks = len(top_n_indices)
@@ -390,7 +414,7 @@ def efficient_portfolios(
     constraints = [
         {
             "type": "eq",
-            "fun": lambda x: portfolio_return(x, returns) - target_return,
+            "fun": lambda x: portfolio_return(x, returns, num_trading_days) - target_return,
         },
         {"type": "eq", "fun": lambda x: np.sum(x) - 1},
     ]
@@ -398,7 +422,7 @@ def efficient_portfolios(
     optimum = optimization.minimize(
         fun=min_func_variance,
         x0=init_guess,
-        args=returns,
+        args=(returns, num_trading_days),
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,

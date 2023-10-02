@@ -94,12 +94,6 @@ def show_portfolios(
     efficient_volatilities: np.ndarray = None,
     trading_days: int = 1,
 ) -> None:
-    portfolio_returns *= trading_days
-    portfolio_volatilities *= np.sqrt(trading_days)
-    optimal_returns *= trading_days
-    optimal_volatilities *= np.sqrt(trading_days)
-    efficient_returns *= trading_days
-    efficient_volatilities *= np.sqrt(trading_days)
 
     sharpe_ratios = [
         np.float64(portfolio_return) / np.float64(portfolio_volatility)
@@ -246,11 +240,11 @@ def get_summary_data_and_simulation(
     return summary_data, simuation, portfolios[0]
 
 
-@st.cache_data
+# @st.cache_data
 def backtesting(
-    run_id: int, portfolio_value: int, optimal_weights: np.ndarray
+    run_id: int, portfolio_value: int, optimal_weights: np.ndarray, start_date: datetime, end_date: datetime
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    return backtesting_main(run_id, portfolio_value, optimal_weights)
+    return backtesting_main(run_id, portfolio_value, optimal_weights, start_date, end_date)
 
 
 def main():
@@ -349,15 +343,15 @@ def main():
         "Would you like a portfolio with a :green[higher return] or :blue[lower volatility]?"
     )
     option = [
-        f"{np.round(efficient_return*trading_days*100,2)}% Return, {np.round(efficient_volatilitiy*np.sqrt(trading_days)*100,2)}% Volatility"
+        f"{np.round(efficient_return*100,2)}% Return, {np.round(efficient_volatilitiy*100,2)}% Volatility"
         for efficient_return, efficient_volatilitiy in zip(
             efficient_returns, efficient_volatilities
         )
     ]
 
     sharpe_ratios = np.round(
-        (efficient_returns * trading_days - risk_free_rate)
-        / (efficient_volatilities * np.sqrt(trading_days)),
+        (efficient_returns - risk_free_rate)
+        / (efficient_volatilities),
         3,
     )
     max_sharpe = np.max(sharpe_ratios)
@@ -372,7 +366,7 @@ def main():
     selected_portfolio_returns = efficient_returns[selected_portfolio_index]
     selected_portfolio_volatility = efficient_volatilities[selected_portfolio_index]
 
-    calculated_return = selected_portfolio_returns * trading_days
+    calculated_return = selected_portfolio_returns
     st.subheader(f"Allocation and Statistics for :blue[{trading_days}] Trading Days")
 
     left_col, right_col = st.columns((2, 1))
@@ -405,7 +399,7 @@ def main():
             {
                 "Name": ["Total"],
                 "Ticker": [""],
-                "Weight (%)": [selected_portfolio_weights.sum() * 100],
+                "Weight (%)": [np.round(selected_portfolio_weights.sum() * 100)],
                 "Expected Returns ($)": [expected_return],
             },
             index=["Total"],
@@ -416,12 +410,13 @@ def main():
         # Displaying the DataFrame with Name as the index
         st.dataframe(ticker_weights_df.set_index("Name"), use_container_width=True)
     with right_col:
-        st.write(f"Return: {np.round(calculated_return*100,2)}%")
+        st.write(f"Expected Return: {np.round(np.exp(calculated_return)-1,2)*100}%")
+        st.write(f"Log Return: {np.round(calculated_return*100,2)}%")
         st.write(
-            f"Volatility: {np.round(selected_portfolio_volatility*np.sqrt(trading_days)*100, 2)}%"
+            f"Volatility: {np.round(selected_portfolio_volatility*100, 2)}%"
         )
-        sharpe_ratio = (selected_portfolio_returns * trading_days - risk_free_rate) / (
-            selected_portfolio_volatility * np.sqrt(trading_days)
+        sharpe_ratio = (selected_portfolio_returns - risk_free_rate) / (
+            selected_portfolio_volatility
         )
         st.write(f"Sharpe Ratio: {np.round(sharpe_ratio, 3)}")
     # Scatter plot using portfolio weights
@@ -470,7 +465,7 @@ def main():
     )
 
     scenario_summary_data, affected_sectors_data = backtesting(
-        run_id, portfolio_value, selected_portfolio_weights
+        run_id, portfolio_value, selected_portfolio_weights, start_date_obj, end_date_obj
     )
 
     tab1, tab2 = st.tabs(["Scenario Summary", "Affected Sectors"])

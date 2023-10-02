@@ -8,16 +8,17 @@ from functions.database import get_ticker_data, filter_tickers
 
 
 def main(
-    run_id: int, portfolio_value: int, optimal_weights: np.ndarray
+    run_id: int, portfolio_value: int, optimal_weights: np.ndarray, start_date: datetime, end_date: datetime
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     financial_crisis = get_financial_crisis(connection)
     if not run_id:
         return
     tickers = get_ticker_data(connection, run_id)
     filtered_tickers, filtered_weights = filter_tickers(tickers, optimal_weights)
-    # Create an empty list to store the results
+    
     scenario_summary_data = []
     sector_returns = []
+    financial_crisis.append(("Back Testing", start_date, end_date))
     for crisis in financial_crisis:
         crisis_name, start_date, end_date = crisis
         start_date = start_date.strftime("%Y-%m-%d")
@@ -55,8 +56,7 @@ def main(
     )
 
     combined_sector_returns = pd.concat(sector_returns, axis=1)
-
-    return scenario_summary_df, combined_sector_returns
+    return scenario_summary_df.round(2), combined_sector_returns.round(2)
 
 
 def get_financial_crisis(
@@ -111,18 +111,21 @@ def calculate_profit_and_loss(
 
 
 def calculate_total_return(data: pd.DataFrame, weights: np.ndarray = None) -> float:
-    start_price = data.iloc[0]
-    end_price = data.iloc[-1]
-
     if weights is not None:
-        start_price = np.dot(start_price, weights)
-        end_price = np.dot(end_price, weights)
+        total_return = 0
+        for idx, weight in enumerate(weights):
+            if weight > 0:
+                ticker = data.columns[idx]
+                start_price = data[ticker].iloc[0]
+                end_price = data[ticker].iloc[-1]
+                total_return += ((end_price - start_price) / start_price) * weight
+        total_return *= 100
     else:
-        start_price = start_price.iloc[0]
-        end_price = end_price.iloc[0]
-
-    total_return = ((end_price - start_price) / start_price) * 100
+        start_price = data.iloc[0, 0]
+        end_price = data.iloc[-1, 0]
+        total_return = ((end_price - start_price) / start_price) * 100
     return total_return
+
 
 
 def calculate_stock_return(df):
