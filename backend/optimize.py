@@ -14,6 +14,7 @@ from demo import (
 import asyncio
 from postgres import create_pool
 from scipy.stats import normaltest, skew, kurtosis
+from datetime import timedelta
 
 DEBUG = False
 
@@ -118,8 +119,10 @@ async def main() -> None:
                     optimum, expected_return, volatility, sharpe_ratio
                 )
                 show_optimal_portfolio(expected_return, volatility, means, risks)
+                
             efficient_list = [[optimum, expected_return, volatility, skewness_optimum, kurtosis_optimum]]
             target_returns = np.linspace(expected_return*0.5, expected_return*1.2, 10)
+            
             for target in target_returns:
                 print(f"Target return: {target}")
                 final_optimum_weights = efficient_portfolios(
@@ -196,6 +199,9 @@ async def run_with_new_connection(pool, func, *args):
 async def download_data(start_date: str, end_date: str, connection) -> pd.DataFrame:
     tickers = await connection.fetch("SELECT ticker FROM equities")
     stock_data = {}
+    # Subtract 5 years from start_date
+    end_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    start_date = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=5*365)).strftime("%Y-%m-%d")
 
     for stock_tuple in tickers:
         stock = stock_tuple["ticker"]
@@ -417,28 +423,12 @@ def optimize_portfolio(
         return 0
 
 
-def min_func_variance(weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252, risk_free_rate: float = 0.001) -> float:
-    variance = statistics(weights, returns, num_trading_days=num_trading_days, risk_free_rate=risk_free_rate)[1]
-
-    # Calculate penalty based on the original weights
-    adjusted_weights = np.copy(weights)
-    adjusted_weights[adjusted_weights < 0.05] = 0
-    non_zero_weights = np.sum(adjusted_weights > 0)
-    if non_zero_weights == 0:
-        penalty = 1000
-    else:
-        adjusted_weights = adjusted_weights / np.sum(adjusted_weights)
-        penalty = 1000 if non_zero_weights < 5 or non_zero_weights > 20 else 0
-
-    return variance + penalty
-
-
 def portfolio_return(weights: np.ndarray, returns: pd.DataFrame, num_trading_days: int = 252, risk_free_rate: float = 0.001) -> float:
     return statistics(weights, returns, num_trading_days=num_trading_days, risk_free_rate=risk_free_rate)[0]
 
 
 def efficient_portfolios(
-    returns: np.ndarray, top_n_indices: int, original_len: int, target_return: float, num_trading_days: int = 252, risk_free_rate: float = 0.001
+    returns: np.ndarray, top_n_indices: int, original_len: int, target_return: float, lambda_val: float = 0.1, num_trading_days: int = 252, risk_free_rate: float = 0.001
 ) -> np.ndarray:
     # Optimization
     len_stocks = len(top_n_indices)
@@ -455,10 +445,11 @@ def efficient_portfolios(
         {"type": "eq", "fun": lambda x: np.sum(x) - 1},
     ]
 
+    # Note: Changed objective function to min_func_sharpe
     optimum = optimization.minimize(
-        fun=min_func_variance,
+        fun=min_func_sharpe,
         x0=init_guess,
-        args=(returns, num_trading_days, risk_free_rate),
+        args=(returns, lambda_val, num_trading_days, risk_free_rate),
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,
