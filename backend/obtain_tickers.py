@@ -1,13 +1,15 @@
 import pandas as pd
 import yfinance as yf
 import psycopg2
+import urllib.request
 from postgres import connection
 
 
 def main() -> None:
     ticker_source = fetch_tickers()
     print(ticker_source)
-    filtered_stocks = filter_stocks(ticker_source)
+    filtered_stocks = ticker_source
+    #filtered_stocks = filter_stocks(ticker_source)
     print(f"{len(filtered_stocks)} stocks remaining")
     next_index = len(filtered_stocks)
     sti_index = [
@@ -22,10 +24,9 @@ def main() -> None:
 
 
 def fetch_tickers() -> pd.DataFrame:
-    return pd.read_html(
-        "https://topforeignstocks.com/listed-companies-lists/the-complete-list-of-listed-companies-in-singapore/"
-    )[0]
-
+    url = "https://topforeignstocks.com/listed-companies-lists/the-complete-list-of-listed-companies-in-singapore/"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    return pd.read_html(urllib.request.urlopen(req))[0]
 
 def filter_stocks(ticker_source: pd.DataFrame) -> pd.DataFrame:
     counter = 0
@@ -37,7 +38,7 @@ def filter_stocks(ticker_source: pd.DataFrame) -> pd.DataFrame:
     for idx, ticker in enumerate(ticker_source["Code"]):
         try:
             data = yf.Ticker(ticker)
-            quote_type = data.info["quoteType"]
+            quote_type = data.fast_info["quoteType"]
         except Exception as e:
             print(f"{ticker} is delisted")
             delisted.append(idx)

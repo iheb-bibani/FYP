@@ -13,7 +13,7 @@ from demo import (
 )
 import asyncio
 from postgres import create_pool
-from scipy.stats import normaltest
+from scipy.stats import normaltest, skew, kurtosis
 
 DEBUG = False
 
@@ -62,8 +62,9 @@ async def main() -> None:
     try:
         async with pool.acquire() as connection:
             data = await download_data(start_date, end_date, connection)
+            print(f"Number of tickers: {len(data.columns)}")
             log_return = calculate_returns(data)
-            tickers = data.columns.tolist()
+            tickers = log_return.columns.tolist()
 
             weights, means, risks = generate_portfolios(log_return, 50000, tickers, trading_days, risk_free_rate)
 
@@ -87,7 +88,7 @@ async def main() -> None:
                 modified_returns, top_n_indices, original_len, lambda_val=0.1, num_trading_days=trading_days
             )
 
-            expected_return, volatility, sharpe_ratio = statistics(
+            expected_return, volatility, sharpe_ratio, skewness_optimum, kurtosis_optimum = statistics(
                 optimum, log_return, lambda_val=0, num_trading_days=trading_days
             )
             
@@ -117,19 +118,8 @@ async def main() -> None:
                     optimum, expected_return, volatility, sharpe_ratio
                 )
                 show_optimal_portfolio(expected_return, volatility, means, risks)
-            else:
-                store_optimal_db = asyncio.create_task(
-                    run_with_new_connection(
-                        pool,
-                        store_optimal_weights,
-                        optimum,
-                        expected_return,
-                        volatility,
-                        run_id,
-                    )
-                )
-            efficient_list = [[optimum, expected_return, volatility, sharpe_ratio]]
-            target_returns = np.geomspace(expected_return*0.2, expected_return*1.2, 10)
+            efficient_list = [[optimum, expected_return, volatility, skewness_optimum, kurtosis_optimum]]
+            target_returns = np.linspace(expected_return*0.5, expected_return*1.2, 10)
             for target in target_returns:
                 print(f"Target return: {target}")
                 final_optimum_weights = efficient_portfolios(
@@ -139,14 +129,15 @@ async def main() -> None:
                     print("No efficient portfolio found.")
                     continue
                 else:
-                    expected_return, volatility, sharpe_ratio = statistics(
+                    expected_return, volatility, sharpe_ratio, skewness_efficient, kurtosis_efficient = statistics(
                         final_optimum_weights, log_return
                     )
                     values = (
                         final_optimum_weights,
                         expected_return,
                         volatility,
-                        sharpe_ratio,
+                        skewness_efficient,
+                        kurtosis_efficient,
                     )
                 efficient_list.append(values)
             max_length = max([len([x for x in lst[0] if x != 0]) for lst in efficient_list])
@@ -173,7 +164,7 @@ async def main() -> None:
 
             if not DEBUG:
                 await asyncio.gather(
-                    store_portfolio_db, store_optimal_db, store_efficient_db
+                    store_portfolio_db, store_efficient_db
                 )
     except asyncio.CancelledError as e:
         print(f"Connection cancelled: {e}")
@@ -207,47 +198,68 @@ async def download_data(start_date: str, end_date: str, connection) -> pd.DataFr
     stock_data = {}
 
     for stock_tuple in tickers:
-        stock = stock_tuple["ticker"]  # The column name should be the key.
+        stock = stock_tuple["ticker"]
         if stock == "^STI":
             continue
         table_name = f"stock_{stock[:3]}"  # Remove the .SI suffix
         query = (
-            f"SELECT Date, Adj_Close FROM {table_name} WHERE Date >= $1 AND Date <= $2"
+            f"SELECT Date, close FROM {table_name} WHERE Date >= $1 AND Date <= $2"
         )
-        data = await connection.fetch(query, start_date, end_date)
-        if data:
-            dates, closes = zip(*data)
-            if datetime.strptime(start_date, "%Y-%m-%d") != datetime.strptime(
-                dates[0], "%Y-%m-%d"
-            ) or datetime.strptime(end_date, "%Y-%m-%d") != datetime.strptime(
-                dates[-1], "%Y-%m-%d"
-            ):
-                print(
-                    f"Insufficient data for {stock}. Data not retrieved. {dates[0]} to {dates[-1]}"
-                )
-                continue
-            stock_data[stock] = pd.Series(closes, index=pd.to_datetime(dates))
+        try:
+            data = await connection.fetch(query, start_date, end_date)
+            if data:
+                dates, closes = zip(*data)
+                if datetime.strptime(start_date, "%Y-%m-%d") != datetime.strptime(
+                    dates[0], "%Y-%m-%d"
+                ) or datetime.strptime(end_date, "%Y-%m-%d") != datetime.strptime(
+                    dates[-1], "%Y-%m-%d"
+                ):
+                    print(
+                        f"Insufficient data for {stock}. Data not retrieved. {dates[0]} to {dates[-1]}"
+                    )
+                    continue
+
+                if closes[-1] > 0.2:
+                    stock_data[stock] = pd.Series(closes, index=pd.to_datetime(dates))
+                else:
+                    print(f"Skipping {stock} as close price is less than $0.2")
+
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
 
     return pd.DataFrame(stock_data)
 
 
 def calculate_returns(data: pd.DataFrame) -> pd.DataFrame:
     column_names = data.columns
-    shifted_data = np.array(data.shift(1).values)
-    data_values = np.array(data.values)
+    shifted_data = data.shift(1).values
+    data_values = data.values
+    
+    # Calculate log returns
     log_return = np.where(
         (data_values > 0) & (shifted_data > 0),
         np.log(data_values / shifted_data),
         np.nan,
-    )[
-        1:
-    ]  # Remove the first row of NaNs
-
-    normal_returns = count_normal_returns(log_return)
+    )[1:]
+    
+    # Drop columns with negative or zero daily prices
+    cols_to_drop_negative = column_names[(data <= 0).any()].tolist()
+    
+    # Drop columns with NaN in log returns
+    log_return_df = pd.DataFrame(log_return, columns=column_names)
+    cols_to_drop_nan = log_return_df.columns[log_return_df.isna().any()].tolist()
+    
+    # Combine both lists and drop from DataFrame
+    cols_to_drop = set(cols_to_drop_negative + cols_to_drop_nan)
+    log_return_df.drop(columns=cols_to_drop, inplace=True)
+    
+    print(f"Columns dropped: {cols_to_drop}")
+    
+    normal_returns = count_normal_returns(log_return_df.to_numpy())
     print(f"{normal_returns} returns are normally distributed.")
-
-    return pd.DataFrame(log_return, columns=column_names)
-
+    
+    return log_return_df
 
 def count_normal_returns(returns: np.ndarray) -> int:
     _, p_values = normaltest(returns)
@@ -307,20 +319,21 @@ def generate_portfolios(
     return portfolio_weights, portfolio_means, portfolio_risks
 
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
+# Adjusted Sharpe Ratio = Sharpe Ratio * sqrt((1 - skewness * Sharpe Ratio + (kurtosis - 1) * (Sharpe Ratio ** 2)) / 2)
 def statistics(
-    weights: np.ndarray, returns: np.ndarray, lambda_val: float = 0.1, num_trading_days: int = 252, risk_free_rate: float = 0.001
+    weights: np.ndarray, log_returns: np.ndarray, lambda_val: float = 0.1, num_trading_days: int = 252, risk_free_rate: float = 0.00
 ) -> np.ndarray:
     
-    mean_log_returns = np.mean(returns, axis=0)
+    mean_log_returns = np.mean(log_returns, axis=0)
     mean_abs_returns = np.exp(mean_log_returns) - 1
     total_mean_abs_return = np.sum(mean_abs_returns * weights)
     total_mean_log_return = np.log(1 + total_mean_abs_return)
     portfolio_return = total_mean_log_return * num_trading_days
     
-    if isinstance(returns, pd.DataFrame):
-        cov_matrix = returns.cov().values
+    if isinstance(log_returns, pd.DataFrame):
+        cov_matrix = log_returns.cov().values
     else:  # Assuming it's a NumPy array
-        cov_matrix = np.cov(returns, rowvar=False)
+        cov_matrix = np.cov(log_returns, rowvar=False)
 
     portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))) * np.sqrt(num_trading_days)
 
@@ -330,8 +343,16 @@ def statistics(
         regularized_sharpe_ratio = raw_sharpe_ratio - lambda_val * l1_norm
     else:
         regularized_sharpe_ratio = raw_sharpe_ratio
-
-    return np.array([portfolio_return, portfolio_volatility, regularized_sharpe_ratio])
+        
+    # Calculate the skewness and kurtosis
+    portfolio_daily_log_returns = np.dot(log_returns, weights)
+    portfolio_skewness = skew(portfolio_daily_log_returns)
+    portfolio_kurtosis = kurtosis(portfolio_daily_log_returns)
+    
+    adj_sharpe_ratio = regularized_sharpe_ratio * np.sqrt((1 - portfolio_skewness * raw_sharpe_ratio + (portfolio_kurtosis - 1) * (raw_sharpe_ratio ** 2)) / 2)
+    #psr_value = norm.cdf(adj_sharpe_ratio * np.sqrt(num_trading_days - 1))
+    
+    return np.array([portfolio_return, portfolio_volatility, adj_sharpe_ratio, portfolio_skewness, portfolio_kurtosis])
 
 
 
@@ -462,15 +483,22 @@ def efficient_portfolios(
 def sort_by_sharpe_ratio(
     returns: pd.DataFrame, top_n: int = 100
 ) -> Tuple[np.ndarray, List[int], int]:
-    # Step 0: Pre-filter stocks based on Sharpe ratio
+    
     mean_returns = np.array(returns.mean())
     std_dev = np.array(returns.std())
-    sharpe_ratios = mean_returns / std_dev
-    sorted_indices = np.argsort(-sharpe_ratios)  # Sort in descending order
-    top_n_indices = sorted_indices[:top_n].tolist()
+    skewness_values = skew(returns)
+    kurtosis_values = kurtosis(returns)
+    
+    raw_sharpe_ratios = mean_returns / std_dev
 
-    # Reduce the size of returns and initial guess
-    reduced_returns = np.array(returns.iloc[:, top_n_indices])
+    # Calculate Adjusted Sharpe Ratios
+    adj_sharpe_ratios = raw_sharpe_ratios * np.sqrt(
+        (1 - skewness_values * raw_sharpe_ratios + (kurtosis_values - 1) * (raw_sharpe_ratios ** 2)) / 2
+    )
+    
+    sorted_indices = np.argsort(-adj_sharpe_ratios) 
+    top_n_indices = sorted_indices[:top_n].tolist()
+    reduced_returns = returns.iloc[:, top_n_indices]
 
     return reduced_returns, top_n_indices, len(returns.columns)
 
@@ -527,45 +555,11 @@ async def store_portfolio_weights(
             risk,
         )
 
-
-async def store_optimal_weights(
-    optimum_weights: np.ndarray,
-    means: np.float_,
-    risks: np.float_,
-    run_id: int,
-    connection,
-) -> int:
-    await connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS optimal_weights (
-            id SERIAL PRIMARY KEY,
-            run_id INTEGER,
-            weight TEXT,
-            returns REAL,
-            volatility REAL,
-            FOREIGN KEY(run_id) REFERENCES ticker_run(id)
-        )
-    """
-    )
-    weights_str = ",".join([str(weight) for weight in optimum_weights])
-    await connection.execute(
-        "INSERT INTO optimal_weights (run_id, weight, returns, volatility) VALUES ($1, $2, $3, $4)",
-        run_id,
-        weights_str,
-        means,
-        risks,
-    )
-
-
 async def store_efficient_frontier(
     efficient_list: List[np.ndarray],
     run_id: int,
     connection,
 ) -> int:
-    optimum_weights = [x[0] for x in efficient_list]
-    means = [x[1] for x in efficient_list]
-    risks = [x[2] for x in efficient_list]
-
     await connection.execute(
         """
         CREATE TABLE IF NOT EXISTS efficient_frontier (
@@ -574,18 +568,22 @@ async def store_efficient_frontier(
             weight TEXT,
             returns REAL,
             volatility REAL,
+            skewness REAL,
+            kurtosis REAL,
             FOREIGN KEY(run_id) REFERENCES ticker_run(id)
         )
     """
     )
-    for weights, mean, risk in zip(optimum_weights, means, risks):
+    for weights, mean, risk, skew, kurt in efficient_list:
         weights_str = ",".join([str(weight) for weight in weights])
         await connection.execute(
-            "INSERT INTO efficient_frontier (run_id, weight, returns, volatility) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO efficient_frontier (run_id, weight, returns, volatility, skewness, kurtosis) VALUES ($1, $2, $3, $4, $5, $6)",
             run_id,
             weights_str,
             mean,
             risk,
+            skew,
+            kurt,
         )
 
 

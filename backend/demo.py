@@ -33,7 +33,8 @@ def print_optimal_portfolio(
     print(f"Optimal weights: {optimum}")
     print(f"Expected return: {expected_return}")
     print(f"Volatility: {volatility}")
-    print(f"Sharpe Ratio: {sharpe_ratio}")
+    print(f"Given Sharpe Ratio: {sharpe_ratio}")
+    print(f"Calculated Sharpe Ratio: {expected_return / volatility}")
 
 
 def show_optimal_portfolio(

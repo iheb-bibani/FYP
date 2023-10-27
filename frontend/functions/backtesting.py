@@ -84,7 +84,7 @@ def download_data(
         table_name = (
             f"stock_{stock[:3]}" if stock != "^STI" else "STI"
         )  # Remove the .SI suffix
-        query = f"SELECT Adj_Close FROM {table_name} WHERE Date >= %s AND Date <= %s ORDER BY Date"
+        query = f"SELECT close FROM {table_name} WHERE Date >= %s AND Date <= %s ORDER BY Date"
         cursor.execute(query, (start_date, end_date))
         data = cursor.fetchall()
         if data:

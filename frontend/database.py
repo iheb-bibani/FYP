@@ -26,35 +26,13 @@ def get_portfolio_weights(
     portfolio_volatilities = [float(row[1]) for row in rows]
     return np.array(portfolio_returns), np.array(portfolio_volatilities)
 
-
-@st.cache_data(ttl="30d")
-def get_optimal_weights(
-    _connection: psycopg2.extensions.connection, run_id: int
-) -> list:
-    cursor = _connection.cursor()
-    cursor.execute(
-        "SELECT returns, volatility FROM optimal_weights WHERE run_id=%s",
-        (run_id,),
-    )
-    rows = cursor.fetchall()
-    cursor.close()
-    # optimal_weights = [list(map(float, row[0].split(","))) for row in rows][0]
-    optimal_returns = [float(row[0]) for row in rows][0]
-    optimal_volatilities = [float(row[1]) for row in rows][0]
-    return (
-        # np.array(optimal_weights),
-        np.array(optimal_returns),
-        np.array(optimal_volatilities),
-    )
-
-
 @st.cache_data(ttl="30d")
 def get_efficient_frontier(
     _connection: psycopg2.extensions.connection, run_id: int
 ) -> list:
     cursor = _connection.cursor()
     cursor.execute(
-        "SELECT weight, returns, volatility FROM efficient_frontier WHERE run_id=%s",
+        "SELECT weight, returns, volatility, skewness, kurtosis FROM efficient_frontier WHERE run_id=%s",
         (run_id,),
     )
     rows = cursor.fetchall()
@@ -62,10 +40,14 @@ def get_efficient_frontier(
     efficient_weights = [list(map(float, row[0].split(","))) for row in rows]
     portfolio_returns = [float(row[1]) for row in rows]
     portfolio_volatilities = [float(row[2]) for row in rows]
+    skewness = [float(row[3]) for row in rows]
+    kurtois = [float(row[4]) for row in rows]
     return (
         np.array(efficient_weights),
         np.array(portfolio_returns),
         np.array(portfolio_volatilities),
+        np.array(skewness),
+        np.array(kurtois),
     )
 
 
@@ -102,3 +84,11 @@ def get_ticker_names(_connection: psycopg2.extensions.connection) -> dict:
     ticker_names = {row[0]: row[1] for row in cursor.fetchall()}
     cursor.close()
     return ticker_names
+
+@st.cache_data(ttl="30d")
+def get_benchmark_returns(_connection: psycopg2.extensions.connection, start_date: str, end_date: str) -> list:
+    cursor = _connection.cursor()
+    cursor.execute("SELECT close FROM sti WHERE date BETWEEN %s AND %s", (start_date, end_date))
+    benchmark_returns = [float(row[0]) for row in cursor.fetchall()]
+    cursor.close()
+    return benchmark_returns

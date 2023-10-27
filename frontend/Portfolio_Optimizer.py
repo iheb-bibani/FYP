@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from typing import List, Tuple
+from scipy.stats import norm, skew, kurtosis
 
 # Third-Party Libraries
 import plotly.graph_objects as go
@@ -16,11 +17,11 @@ from functions.backtesting import main as backtesting_main
 from database import (
     get_date_ranges,
     get_portfolio_weights,
-    get_optimal_weights,
     get_efficient_frontier,
     get_ticker_data,
     get_run_id,
     get_ticker_names,
+    get_benchmark_returns,
 )
 from descriptions import (
     more_info_portfolios,
@@ -115,8 +116,8 @@ def show_portfolios(
 
     fig.add_trace(
         go.Scatter(
-            x=optimal_volatilities,
-            y=optimal_returns,
+            x=[optimal_volatilities],
+            y=[optimal_returns],
             mode="markers",
             marker=dict(size=15, color="green"),
             name="Optimal Portfolio",
@@ -308,19 +309,21 @@ def main():
             help="Select the number of days to simulate VaR for.",
         )
 
-    # Get portfolio and optimal weights for selected dates
+    # Get portfolio and efficient weights for selected dates
     (
         # portfolio_weights,
         portfolio_returns,
         portfolio_volatilities,
     ) = get_portfolio_weights(connection, run_id)
-    optimal_returns, optimal_volatilities = get_optimal_weights(connection, run_id)
     (
         efficient_weights,
         efficient_returns,
         efficient_volatilities,
+        efficient_skewness,
+        efficient_kurtois,
     ) = get_efficient_frontier(connection, run_id)
     tickers = get_ticker_data(connection, run_id)
+    benchmark_returns = get_benchmark_returns(connection, start_date=selected_start_date, end_date=selected_end_date)
 
     st.subheader(":chart_with_upwards_trend: Optimal Portfolio Allocation")
     st.subheader(
@@ -343,7 +346,7 @@ def main():
         "Would you like a portfolio with a :green[higher return] or :blue[lower volatility]?"
     )
     option = [
-        f"{np.round(efficient_return*100,2)}% Return, {np.round(efficient_volatilitiy*100,2)}% Volatility"
+        f"{np.round((np.exp(efficient_return)-1)*100,2)}% Return, {np.round(efficient_volatilitiy*100,2)}% Volatility"
         for efficient_return, efficient_volatilitiy in zip(
             efficient_returns, efficient_volatilities
         )
@@ -357,6 +360,7 @@ def main():
     max_sharpe = np.max(sharpe_ratios)
     max_sharpe_indices = np.where(sharpe_ratios == max_sharpe)[0]
     default_index = max_sharpe_indices[np.argmax(efficient_returns[max_sharpe_indices])]
+    optimal_returns, optimal_volatilities = efficient_returns[default_index], efficient_volatilities[default_index]
     selected_portfolio = st.selectbox(
         "Select Portfolio", option, index=int(default_index)
     )
@@ -365,8 +369,9 @@ def main():
     selected_portfolio_weights = efficient_weights[selected_portfolio_index]
     selected_portfolio_returns = efficient_returns[selected_portfolio_index]
     selected_portfolio_volatility = efficient_volatilities[selected_portfolio_index]
-
-    calculated_return = selected_portfolio_returns
+    selected_portfolio_skewness = efficient_skewness[selected_portfolio_index]
+    selected_portfolio_kurtosis = efficient_kurtois[selected_portfolio_index]
+    
     st.subheader(f"Allocation and Statistics for :blue[{trading_days}] Trading Days")
 
     left_col, right_col = st.columns((1, 1))
@@ -400,13 +405,30 @@ def main():
         # Displaying the DataFrame with Name as the index
         st.dataframe(ticker_weights_df.set_index("Name"), use_container_width=True)
     with right_col:
-        st.write(f"Expected Return: {np.round(np.exp(calculated_return)-1,2)*100}%")
-        st.write(f"Log Return: {np.round(calculated_return*100,2)}%")
+        st.markdown("Predicted Statistics:")
+        st.write(f"Return: {np.round((np.exp(selected_portfolio_returns)-1)*100,2)}%")
         st.write(f"Volatility: {np.round(selected_portfolio_volatility*100, 2)}%")
+        st.write(f"Log Return: {np.round(selected_portfolio_returns*100,2)}%")
         sharpe_ratio = (selected_portfolio_returns - risk_free_rate) / (selected_portfolio_volatility)
         st.write(f"Sharpe Ratio: {np.round(sharpe_ratio, 3)}")
-        sortino_ratio = (selected_portfolio_returns - risk_free_rate) / (np.std(portfolio_returns[portfolio_returns < 0]))
-        st.write(f"Sortino Ratio: {np.round(sortino_ratio, 3)}")
+    with st.expander("Show More Statistics"):
+        benchmark_returns = np.array(benchmark_returns)
+        benchmark_log_returns = np.log(benchmark_returns/np.roll(benchmark_returns, 1))[1:]
+        benchmark_mean_log_return = np.mean(benchmark_log_returns)
+        benchmark_volatility = np.std(benchmark_log_returns)
+        benchmark_shape_ratio = (benchmark_mean_log_return - risk_free_rate) / benchmark_volatility
+        benchmark_skewness = skew(benchmark_log_returns)
+        benchmark_kurtosis = kurtosis(benchmark_log_returns)
+        adjusted_benchmark_sr = benchmark_shape_ratio * np.sqrt((1 - benchmark_skewness * benchmark_shape_ratio + (benchmark_kurtosis - 1) * (benchmark_shape_ratio ** 2)) / 2)
+        adjusted_sharpe_ratio = sharpe_ratio * np.sqrt((1 - selected_portfolio_skewness * sharpe_ratio + (selected_portfolio_kurtosis - 1) * (sharpe_ratio ** 2)) / 2)
+        st.write(f"Portfolio Skewness: {np.round(selected_portfolio_skewness, 2)}")
+        st.write(f"Portfolio Kurtosis: {np.round(selected_portfolio_kurtosis, 2)}")
+        st.write(f"Adjusted Sharpe Ratio: {np.round(adjusted_sharpe_ratio, 2)}")
+        portfolio_standard_err = selected_portfolio_volatility / np.sqrt(trading_days)
+        psr_value = norm.cdf((adjusted_sharpe_ratio - adjusted_benchmark_sr) / portfolio_standard_err)
+        st.write(f"PSR Value: {np.round(psr_value, 2)}")
+        # sortino_ratio = (selected_portfolio_returns - risk_free_rate) / (np.std(portfolio_returns[portfolio_returns < 0]))
+        # st.write(f"Sortino Ratio: {np.round(sortino_ratio, 3)}")
         # treynor_ratio = (selected_portfolio_returns - risk_free_rate) / (beta)
         # st.write(f"Treynor Ratio: {np.round(treynor_ratio, 3)}")
         # information_ratio = (selected_portfolio_returns - benchmark_returns.mean()) / (np.std(portfolio_returns - benchmark_returns))
