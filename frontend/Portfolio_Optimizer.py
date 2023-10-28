@@ -424,7 +424,7 @@ def main():
         st.write(f"Portfolio Skewness: {np.round(selected_portfolio_skewness, 2)}")
         st.write(f"Portfolio Kurtosis: {np.round(selected_portfolio_kurtosis, 2)}")
         st.write(f"Adjusted Sharpe Ratio: {np.round(adjusted_sharpe_ratio, 2)}")
-        portfolio_standard_err = selected_portfolio_volatility / np.sqrt(trading_days)
+        portfolio_standard_err = np.sqrt((1 - selected_portfolio_skewness * adjusted_sharpe_ratio + (selected_portfolio_kurtosis - 1) * (adjusted_sharpe_ratio ** 2)) / trading_days)
         psr_value = norm.cdf((adjusted_sharpe_ratio - adjusted_benchmark_sr) / portfolio_standard_err)
         st.write(f"PSR Value: {np.round(psr_value, 2)}")
         # sortino_ratio = (selected_portfolio_returns - risk_free_rate) / (np.std(portfolio_returns[portfolio_returns < 0]))

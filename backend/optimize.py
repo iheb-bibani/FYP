@@ -203,8 +203,8 @@ async def download_data(start_date: str, end_date: str, connection) -> pd.DataFr
     tickers = await connection.fetch("SELECT ticker FROM equities")
     stock_data = {}
     # Subtract 5 years from start_date
-    end_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-    start_date = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=5*365)).strftime("%Y-%m-%d")
+    # end_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    # start_date = (datetime.strptime(start_date, "%Y-%m-%d") - timedelta(days=5*365)).strftime("%Y-%m-%d")
 
     for stock_tuple in tickers:
         stock = stock_tuple["ticker"]
