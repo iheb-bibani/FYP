@@ -419,6 +419,7 @@ def main():
         benchmark_shape_ratio = (benchmark_mean_log_return - risk_free_rate) / benchmark_volatility
         benchmark_skewness = skew(benchmark_log_returns)
         benchmark_kurtosis = kurtosis(benchmark_log_returns)
+        del(benchmark_returns, benchmark_log_returns, benchmark_mean_log_return, benchmark_volatility)
         adjusted_benchmark_sr = benchmark_shape_ratio * np.sqrt((1 - benchmark_skewness * benchmark_shape_ratio + (benchmark_kurtosis - 1) * (benchmark_shape_ratio ** 2)) / 2)
         adjusted_sharpe_ratio = sharpe_ratio * np.sqrt((1 - selected_portfolio_skewness * sharpe_ratio + (selected_portfolio_kurtosis - 1) * (sharpe_ratio ** 2)) / 2)
         st.write(f"Portfolio Skewness: {np.round(selected_portfolio_skewness, 2)}")

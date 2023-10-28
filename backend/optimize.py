@@ -18,7 +18,7 @@ from datetime import timedelta
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-DEBUG = False
+DEBUG = True
 
 
 async def main() -> None:
@@ -38,7 +38,7 @@ async def main() -> None:
     parser.add_argument(
         "--risk_free_rate", "-rfr",
         type=float,
-        default=0.0,
+        default=0.001,
         help="Risk free rate",
     )
     args = parser.parse_args()
@@ -88,7 +88,7 @@ async def main() -> None:
             )
 
             optimum = optimize_portfolio(
-                modified_returns, top_n_indices, original_len, lambda_val=0.1, num_trading_days=trading_days
+                modified_returns, top_n_indices, original_len, lambda_val=0.1, num_trading_days=trading_days, risk_free_rate=risk_free_rate, skewness_weight=0, kurtosis_weight=0
             )
 
             expected_return, volatility, sharpe_ratio, skewness_optimum, kurtosis_optimum = statistics(
@@ -234,7 +234,6 @@ async def download_data(start_date: str, end_date: str, connection) -> pd.DataFr
                     print(f"Skipping {stock} as close price is less than $0.2")
 
         except Exception as e:
-            print(f"Error: {e}")
             continue
 
     return pd.DataFrame(stock_data)
@@ -346,6 +345,13 @@ def plot_distributions(normal_returns, log_returns):
     plt.tight_layout()
     plt.show()
     
+
+def downside_risk(returns, target=0.0):
+    downside_diff = returns - target
+    squared_downside_diff = downside_diff * (downside_diff < 0)
+    downside_var = np.mean(squared_downside_diff)
+    return np.sqrt(downside_var)
+    
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
 # Adjusted Sharpe Ratio = Sharpe Ratio * sqrt((1 - skewness * Sharpe Ratio + (kurtosis - 1) * (Sharpe Ratio ** 2)) / 2)
 def statistics(
@@ -380,19 +386,22 @@ def statistics(
     portfolio_skewness = skew(portfolio_log_returns)
     portfolio_kurtosis = kurtosis(portfolio_log_returns)
     
-    #adj_sharpe_ratio = regularized_sharpe_ratio * np.sqrt((1 - portfolio_skewness * raw_sharpe_ratio + (portfolio_kurtosis - 1) * (raw_sharpe_ratio ** 2)) / 2)
-    #psr_value = norm.cdf(adj_sharpe_ratio * np.sqrt(num_trading_days - 1))
+    portfolio_downside_risk = downside_risk(portfolio_log_returns, risk_free_rate)
+    sortino_ratio = (portfolio_return - risk_free_rate) / portfolio_downside_risk
     
     return np.array([portfolio_return, portfolio_volatility, regularized_sharpe_ratio, portfolio_skewness, portfolio_kurtosis])
 
 
 # Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
 def min_func_sharpe(
-    weights: np.ndarray, returns: pd.DataFrame, lambda_val: float, num_trading_days: int = 252, risk_free_rate: float = 0.001
+    weights: np.ndarray, returns: pd.DataFrame, lambda_val: float, num_trading_days: int = 252, risk_free_rate: float = 0.001,
+    skewness_weight: float = 0.1, kurtosis_weight: float = 0.1
 ) -> float:
-    sharpe_ratio = statistics(weights, returns, lambda_val, num_trading_days, risk_free_rate)[2]
+    stats = statistics(weights, returns, lambda_val, num_trading_days, risk_free_rate)
+    sharpe_ratio = stats[2]
+    portfolio_skewness = stats[3]
+    portfolio_kurtosis = stats[4]
 
-    # Calculate penalty based on the original weights
     adjusted_weights = np.copy(weights)
     adjusted_weights[adjusted_weights < 0.05] = 0
     non_zero_weights = np.sum(adjusted_weights > 0)
@@ -402,8 +411,9 @@ def min_func_sharpe(
         adjusted_weights = adjusted_weights / np.sum(adjusted_weights)
         penalty = 1000 if non_zero_weights < 5 or non_zero_weights > 20 else 0
 
-    return -sharpe_ratio + penalty
-
+    objective = -sharpe_ratio + penalty - skewness_weight * portfolio_skewness + kurtosis_weight * (portfolio_kurtosis - 3) ** 2
+    
+    return objective
 
 # Finds the optimal portfolio weights that maximizes the Sharpe Ratio
 def optimize_portfolio(
@@ -413,6 +423,8 @@ def optimize_portfolio(
     lambda_val: float = 0.1,
     num_trading_days: int = 252,
     risk_free_rate: float = 0.001,
+    skewness_weight: float = 0.1,
+    kurtosis_weight: float = 0.1,
 ) -> np.ndarray:
     # Optimization
     len_stocks = len(top_n_indices)
@@ -425,7 +437,7 @@ def optimize_portfolio(
     optimum = optimization.minimize(
         fun=min_func_sharpe,
         x0=init_guess,
-        args=(modified_returns, lambda_val, num_trading_days, risk_free_rate),
+        args=(modified_returns, lambda_val, num_trading_days, risk_free_rate, skewness_weight, kurtosis_weight),
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,
