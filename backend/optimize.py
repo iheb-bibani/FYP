@@ -15,6 +15,8 @@ import asyncio
 from postgres import create_pool
 from scipy.stats import normaltest, skew, kurtosis
 from datetime import timedelta
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 DEBUG = False
 
@@ -112,7 +114,8 @@ async def main() -> None:
             print(f"Backtesting log return: {backtesting_log_return}")
             print(f"Expected absolute return: {expected_absolute_return}")
             print(f"Expected log return: {expected_return}")
-        
+            print(f"Skewness: {skewness_optimum}")
+            print(f"Kurtosis: {kurtosis_optimum}")
             
             if DEBUG:
                 print_optimal_portfolio(
@@ -324,6 +327,25 @@ def generate_portfolios(
 
     return portfolio_weights, portfolio_means, portfolio_risks
 
+def plot_distributions(normal_returns, log_returns):
+    plt.figure(figsize=(12, 6))
+    
+    plt.subplot(1, 2, 1)
+    sns.histplot(normal_returns, bins=50, kde=True, color='blue')
+    plt.title('Distribution of Normal Returns')
+    plt.xlabel('Returns')
+    plt.ylabel('Frequency')
+    
+    plt.subplot(1, 2, 2)
+    sns.histplot(log_returns, bins=50, kde=True, color='green')
+    plt.title('Distribution of Log Returns')
+    plt.xlabel('Returns')
+    plt.ylabel('Frequency')
+    
+    plt.legend().remove()
+    plt.tight_layout()
+    plt.show()
+    
 # Sharpe Ratio = (Expected Return - Risk Free Rate) / Expected Volatility
 # Adjusted Sharpe Ratio = Sharpe Ratio * sqrt((1 - skewness * Sharpe Ratio + (kurtosis - 1) * (Sharpe Ratio ** 2)) / 2)
 def statistics(
@@ -335,6 +357,9 @@ def statistics(
     total_mean_abs_return = np.sum(mean_abs_returns * weights)
     total_mean_log_return = np.log(1 + total_mean_abs_return)
     portfolio_return = total_mean_log_return * num_trading_days
+    
+    portfolio_log_returns = np.dot(log_returns, weights)
+    portfolio_normal_returns = np.exp(portfolio_log_returns) - 1
     
     if isinstance(log_returns, pd.DataFrame):
         cov_matrix = log_returns.cov().values
@@ -348,18 +373,17 @@ def statistics(
         l1_norm = np.sum(np.abs(weights))
         regularized_sharpe_ratio = raw_sharpe_ratio - lambda_val * l1_norm
     else:
+        if DEBUG: plot_distributions(portfolio_normal_returns, portfolio_log_returns)
         regularized_sharpe_ratio = raw_sharpe_ratio
         
     # Calculate the skewness and kurtosis
-    portfolio_daily_log_returns = np.dot(log_returns, weights)
-    portfolio_skewness = skew(portfolio_daily_log_returns)
-    portfolio_kurtosis = kurtosis(portfolio_daily_log_returns)
+    portfolio_skewness = skew(portfolio_log_returns)
+    portfolio_kurtosis = kurtosis(portfolio_log_returns)
     
-    adj_sharpe_ratio = regularized_sharpe_ratio * np.sqrt((1 - portfolio_skewness * raw_sharpe_ratio + (portfolio_kurtosis - 1) * (raw_sharpe_ratio ** 2)) / 2)
+    #adj_sharpe_ratio = regularized_sharpe_ratio * np.sqrt((1 - portfolio_skewness * raw_sharpe_ratio + (portfolio_kurtosis - 1) * (raw_sharpe_ratio ** 2)) / 2)
     #psr_value = norm.cdf(adj_sharpe_ratio * np.sqrt(num_trading_days - 1))
     
-    return np.array([portfolio_return, portfolio_volatility, adj_sharpe_ratio, portfolio_skewness, portfolio_kurtosis])
-
+    return np.array([portfolio_return, portfolio_volatility, regularized_sharpe_ratio, portfolio_skewness, portfolio_kurtosis])
 
 
 # Minimize the negative Sharpe Ratio: Maximize the Sharpe Ratio
